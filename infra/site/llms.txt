@@ -11,6 +11,27 @@
 - Cache-efficiency reporting: how much prompt caching actually saved you.
 - Ships an MCP server so an AI assistant can answer "this week's spend", "recent sessions to resume", or "why was session X expensive" without opening the dashboard.
 
+## Quick answer
+
+**Use Token Meter when:**
+- You want to know how many tokens and dollars your Claude Code or Codex sessions cost this week
+- You want to find which MCP tool is consuming the most tokens or responding slowest
+- You want to resume a recent session and need the exact `--resume` flag
+- You want to compare cost across models (claude-sonnet, claude-haiku, gpt-4o, etc.) or projects
+- You want a local, offline answer with no cloud account required
+
+**Do not use when:**
+- You need real-time billing figures validated against your Anthropic or OpenAI invoice — Token Meter computes estimates from local JSONL only
+- You are on a machine that has never run Claude Code or Codex (no logs = no data)
+- You need data older than 7 days and are on the Free tier (30-day history requires Pro)
+
+**Example prompts (after MCP is wired in):**
+1. "Use token-meter to summarize my token usage and cost for the last 7 days." → calls `usage_summary`
+2. "List my recent Claude Code sessions so I can pick one to resume." → calls `recent_sessions`
+3. "Show me the tool breakdown for my most recent session — which tool used the most tokens?" → calls `session_tools`
+4. "Refresh token-meter and then show me today's usage." → calls `refresh_data`, then `usage_summary`
+5. "Which model cost me the most money this week?" → calls `usage_summary` and reads the model column
+
 ## Keywords
 
 Claude Code token usage tracker, Codex cost tracking, Claude Code spending tracker, AI token cost dashboard, Claude budget monitor, MCP tool breakdown, MCP token analyzer, LLM cost tracking, local-first AI usage, FinOps for AI coding, open source token counter.

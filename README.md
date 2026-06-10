@@ -4,6 +4,8 @@
 
 # Token Meter
 
+> Track Claude Code, Codex & Cursor token usage and cost locally — no account, no cloud.
+>
 > One local dashboard for your **Claude Code** and **Codex** token usage.
 > Free, MCP-aware, MIT-licensed core.
 >
@@ -12,6 +14,51 @@
 Token Meter parses the JSONL files that Claude Code and Codex already write to
 disk and turns them into a real dashboard: cost per project, per model, per MCP
 tool, per hour. Your data never leaves your machine.
+
+## When to use this
+
+Use Token Meter if you:
+
+- want to know how many tokens and dollars your Claude Code or Codex sessions are costing — broken down by project, model, and MCP tool
+- are on a flat-fee plan (Claude Max, etc.) and want to see what the equivalent API cost would be
+- want to find which MCP server or tool is eating the most tokens, or which hour of the day is most expensive
+- want to resume a recent session and need the `claude --resume` / `codex resume` command handy
+- want all of the above offline, with no account and nothing uploaded
+
+Not a fit if you need billing-grade numbers validated against your Anthropic or OpenAI invoice — Token Meter computes estimates from local JSONL files only.
+
+## MCP tools
+
+When Token Meter is wired as an MCP server (`install-mcp all`), four tools become available to your AI assistant:
+
+| Tool | What it returns |
+|---|---|
+| `usage_summary` | Daily table of token counts, USD-equivalent cost, and call counts — broken down by day and model |
+| `recent_sessions` | Latest sessions with paste-ready `claude --resume` / `codex resume` commands |
+| `session_tools` | Per-tool breakdown inside a session: call count, total tokens, average latency, response size |
+| `refresh_data` | Re-scans your local JSONL logs for new activity, then returns a fresh summary |
+
+All four are read-only. No data leaves your machine.
+
+## Example prompts
+
+Copy-paste any of these into Claude Code or Cursor after installing the MCP server:
+
+```
+Show me my token usage and cost for the last 7 days.
+```
+```
+List my recent sessions so I can pick one to resume.
+```
+```
+Show the tool breakdown for my most recent session — which tool used the most tokens?
+```
+```
+Refresh token-meter data, then tell me which model cost the most this week.
+```
+```
+Which hour of the day am I spending the most tokens on?
+```
 
 ## Quick start
 
@@ -103,6 +150,8 @@ neither verifies the rates against vendor invoices.
 | **Free** | $0 | Claude Code + Codex parsing, MCP/tool breakdown, hourly/model/project breakdown, 7-day history, 1 desktop alert |
 | **Pro** | **$5/mo** | Everything in Free + 30-day history, unlimited smart alerts (desktop + webhook), session drill-down, cache efficiency, waste signals |
 | Pro+ | _later_ | Local LLM proxy (Ollama / LM Studio / llama.cpp / vLLM), GPU/VRAM tracking, auto actions |
+
+Pro is live — [Subscribe at token-meter.dev](https://token-meter.dev#pricing).
 
 Pro+ ships once Pro sign-ups + community demand confirm the segment.
 
