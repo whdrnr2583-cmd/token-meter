@@ -68,7 +68,7 @@
         {
           "@type": "Question",
           "name": "How much does Token Meter cost?",
-          "acceptedAnswer": { "@type": "Answer", "text": "The CLI and dashboard are free and MIT-licensed. Pro is $5/month and adds 30-day history, per-session drill-down, cache-efficiency savings, and waste signals." }
+          "acceptedAnswer": { "@type": "Answer", "text": "The CLI and dashboard are free and MIT-licensed. Pro is $5/month and adds 30-day history, per-session drill-down, unlimited alert rules, and CSV/JSON export." }
         }
       ]
     }
@@ -89,8 +89,8 @@
     <section class="hero">
       <h1>Your meter for<br /><span class="accent">Claude Code &amp; Codex.</span></h1>
       <p class="sub">
-        Local-first dashboard that shows how many tokens and dollars you spent,
-        where they went, and how fast each model and MCP tool actually runs.
+        Local-first dashboard for what your Claude Code &amp; Codex actually cost —
+        and a Pro view you keep open all month to catch where the spend leaks.
         Your JSONL never leaves your machine.
       </p>
       <div class="cta">
@@ -98,7 +98,7 @@
           <input type="email" name="email" placeholder="you@dev.com" autocomplete="email" aria-label="Your email" required />
           <button type="submit">Get release updates</button>
         </form>
-        <p class="hint" id="waitlist-hint">Free + MIT core, available now. Pro ($5/mo) is live — drop your email for Pro+ &amp; new releases.</p>
+        <p class="hint" id="waitlist-hint">Free + MIT core, available now. Pro ($5/mo) turns the one-time stats glance into a monthly spend review — drop your email for Pro+ &amp; new releases.</p>
       </div>
       <pre class="code">npm install -g @whdrnr2583/token-meter
 token-meter ingest &amp;&amp; token-meter serve</pre>
@@ -235,13 +235,14 @@ token-meter ingest &amp;&amp; token-meter serve</pre>
         <article class="featured">
           <h3>Pro <span class="badge">live</span></h3>
           <p class="price">$5<span>/mo</span></p>
+          <p class="hint" style="margin: 0 0 16px;">The monthly review for your token spend. Free tells you what you spent; Pro tells you what to do about it, every month — keep it open through the month, not just on the 1st.</p>
           <ul>
             <li>Everything in Free</li>
-            <li><strong>30-day</strong> history</li>
+            <li><strong>30-day history</strong> — see this month against the last, not just the last 7 days. The window long enough to spot a trend instead of a spike.</li>
             <li><strong>Smart alerts</strong> unlimited — desktop + webhook</li>
-            <li><strong>Session drill-down</strong> — find the exact session that blew the budget</li>
-            <li><strong>Cache efficiency</strong> — hit ratio + how much caching saved you</li>
-            <li><strong>Waste signals</strong> — oversized tool responses + cache that didn't pay off</li>
+            <li><strong>Session drill-down</strong> — open the exact session (down to the message) that blew the budget, so the answer is "this 8-minute run," not "Tuesday."</li>
+            <li><strong>Cache efficiency</strong> — hit ratio plus how many dollars caching actually saved you this month. Reuse you can put a number on. <em>(coming soon)</em></li>
+            <li><strong>Waste signals</strong> — oversized tool responses and cache that never paid off, surfaced as "worth a look," not verdicts. <em>(coming soon)</em></li>
           </ul>
           <a class="subscribe-btn" href="https://buy.polar.sh/polar_cl_blIZXhiIrFuTCgAIeODxuxE8eat9TWQ1O2pQo19FMpl" target="_blank" rel="noreferrer">Subscribe — $5/mo</a>
           <p class="hint">After payment we email your license key (<code>tm_live_...</code>) to your Polar checkout email. Activate with <code>token-meter activate &lt;key&gt;</code>. <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/pro-features.md" target="_blank" rel="noreferrer">Full Pro spec →</a></p>
