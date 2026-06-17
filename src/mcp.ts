@@ -116,13 +116,13 @@ function padL(s: string, w: number): string {
 const FOOTER_LINKS = '🔗 token-meter.dev · github.com/whdrnr2583-cmd/token-meter';
 const FOOTER_TRUST =
   'ⓘ 100% local · 0 LLM calls — this output is hard-coded, your tokens are not spent computing it.';
-const PRO_CTA = 'Pro $5/mo (30-day history · waste signals · cache-efficiency $)';
+const OSS_POINTER = 'open source · npm install -g @whdrnr2583/token-meter';
 
 /** Build a 3-line discovery + trust footer. Split intentionally so each line
  *  fits a typical ~80-char terminal without wrapping. `siblingHint`
  *  cross-promotes the next tool to try. */
 function discoveryFooter(siblingHint: string): string[] {
-  return [FOOTER_TRUST, siblingHint, `${FOOTER_LINKS} · ${PRO_CTA}`];
+  return [FOOTER_TRUST, siblingHint, `${FOOTER_LINKS} · ${OSS_POINTER}`];
 }
 
 /**
@@ -259,7 +259,7 @@ export async function startMcpServer(): Promise<void> {
         '  • `npx @whdrnr2583/token-meter serve`            — local dashboard at http://localhost:8765\n' +
         '  • `npx @whdrnr2583/token-meter install-mcp <client>` — wire MCP into another tool\n\n' +
         'Links: token-meter.dev · github.com/whdrnr2583-cmd/token-meter\n' +
-        'Pro $5/mo unlocks 30-day history · per-session drill-down · cache-efficiency $ saved · waste signals.',
+        'Open source — install the CLI with: npm install -g @whdrnr2583/token-meter',
     },
   );
 

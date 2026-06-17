@@ -5,6 +5,20 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] — 2026-06-15
+
+### Changed
+- **De-monetization copy pass on the MCP surface.** Replaced the `Pro $5/mo`
+  call-to-action in the tool footer and the `usage_summary` server hint with a
+  neutral open-source pointer (`open source · npm install -g @whdrnr2583/token-meter`).
+  No paywall, price, or subscribe link is emitted from any MCP tool response.
+
+### Why
+Apps-Directory / commerce-policy alignment: marketplace listings disallow digital-goods
+promotion (price · Subscribe · payment URLs) inside tool output. This is a copy-only
+change — no product feature was added, removed, or altered. Pricing remains documented
+on the landing page and README, not in MCP responses.
+
 ## [0.1.17] — 2026-05-27
 
 ### Added
