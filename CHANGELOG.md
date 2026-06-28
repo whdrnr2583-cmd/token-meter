@@ -5,7 +5,7 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.20] — 2026-06-28 (unreleased — pending publish approval)
+## [0.1.20] — 2026-06-28
 
 ### Added
 - **Local LLM proxy (foundation).** `token-meter proxy [--port N] [--backend URL]
@@ -33,7 +33,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 PMF gate note: 0 paid users — 2nd intentional override this session
 (user decision 2026-06-28, D-041). Strongly re-frozen afterward.
 
-## [0.1.19] — 2026-06-28 (unreleased — pending publish approval)
+## [0.1.19] — 2026-06-28 (shipped within 0.1.20 — never published standalone)
 
 ### Added
 - **Sub-agent cost attribution.** A new `agent_id` column (added to
