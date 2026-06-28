@@ -589,3 +589,42 @@ export function subagentCosts(
 
   return { split, subagent_share_pct, top, invocations };
 }
+
+export interface LocalPerfRow {
+  source: string;
+  model: string;
+  calls: number;
+  avg_tps: number | null;
+  avg_ttft_ms: number | null;
+  output: number;
+  input: number;
+}
+
+/**
+ * Performance of locally-run models captured by the proxy (source_kind =
+ * 'local'). Cloud rows have no TTFT/TPS, so this view is local-only. LLM-free.
+ */
+export function localPerf(
+  db: Database.Database,
+  days: number,
+  scope?: ScopeFilter,
+): LocalPerfRow[] {
+  const since = dayWindow(days);
+  const sc = scopeClause(scope);
+  return db
+    .prepare(
+      `SELECT
+        source,
+        model,
+        COUNT(*)                       AS calls,
+        AVG(tps)                       AS avg_tps,
+        AVG(ttft_ms)                   AS avg_ttft_ms,
+        COALESCE(SUM(output_tokens), 0) AS output,
+        COALESCE(SUM(input_tokens), 0)  AS input
+       FROM token_events
+       WHERE ts >= ? AND source_kind = 'local'${sc.clause}
+       GROUP BY source, model
+       ORDER BY calls DESC`,
+    )
+    .all(since, ...sc.params) as LocalPerfRow[];
+}

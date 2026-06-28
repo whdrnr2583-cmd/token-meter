@@ -42,8 +42,10 @@ export interface JsonlEntry {
 
 export interface TokenEvent {
   ts: number; // unix ms
-  source: 'claude-code' | 'codex';
-  source_kind: 'cloud';
+  // 'claude-code' | 'codex' for cloud logs; a local-backend label (e.g.
+  // 'ollama', 'lmstudio', 'vllm') for proxy-captured local LLM calls.
+  source: string;
+  source_kind: 'cloud' | 'local';
   model: string;
   project: string;
   session_id: string;
@@ -54,6 +56,9 @@ export interface TokenEvent {
   cache_write_tokens: number;
   total_duration_ms: number | null;
   tps: number | null;
+  // Time to first token in ms — only measured for local proxy-captured
+  // streaming calls (cloud JSONL logs don't expose it). null otherwise.
+  ttft_ms?: number | null;
   usd_estimate: number;
   // Sub-agent attribution. `null` = main-session event; `agent-<id>` = the
   // Task/Agent sub-agent whose JSONL file (<project>/<sessionId>/subagents/

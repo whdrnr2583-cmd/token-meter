@@ -5,6 +5,34 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] — 2026-06-28 (unreleased — pending publish approval)
+
+### Added
+- **Local LLM proxy (foundation).** `token-meter proxy [--port N] [--backend URL]
+  [--label NAME]` runs a transparent reverse proxy in front of any
+  OpenAI-compatible local server (Ollama :11434 default, LM Studio, llama.cpp,
+  vLLM). It passes every request through byte-for-byte and *measures*
+  `/v1/chat/completions` calls — TTFT, total duration, output tokens, and TPS —
+  for both streaming (SSE) and non-streaming responses. This is the one
+  performance dimension the cloud JSONL path can't see (millisecond TTFT/TPS),
+  and the headline differentiator no competitor offers.
+- **`token-meter local [days]` CLI view** + `localPerf()` query: per (source,
+  model) average TPS / TTFT and call counts for proxy-captured local runs.
+- New `ttft_ms` column on `token_events` (additive, nullable); local calls are
+  stored with `source_kind='local'` and `usd_estimate=0` (no per-token API
+  charge — GPU/electricity cost modelling is a later increment).
+
+### Notes
+- Metric capture is strictly best-effort: if parsing a response throws, the
+  proxy still forwards it unchanged. Output tokens fall back to a ~3.5 char/token
+  estimate (flagged) when the server omits a `usage` block.
+- Scope: foundation only — OpenAI-compatible `/v1/chat/completions`
+  instrumentation. GPU/VRAM tracking, behaviour-changing automation, and the
+  benchmark lab remain on the Pro+ roadmap.
+
+PMF gate note: 0 paid users — 2nd intentional override this session
+(user decision 2026-06-28, D-041). Strongly re-frozen afterward.
+
 ## [0.1.19] — 2026-06-28 (unreleased — pending publish approval)
 
 ### Added

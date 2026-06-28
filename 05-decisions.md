@@ -2,6 +2,17 @@
 
 기록 시점의 결정과 근거를 박제. 번복 시 새 항목 추가하고 이유 기록.
 
+## D-041. v0.1.20 로컬 LLM 프록시 foundation — PMF 동결룰 2차 우회 (동일 세션)
+**날짜**: 2026-06-28
+**결정**: v0.1.19(D-040) 발행 전, 같은 세션에서 두 번째 신규기능(로컬 LLM 프록시) 착수. PMF "결제 0건 → 신규기능 금지" 2차 의식적 우회.
+**우회 사유 (박제 의무)**:
+- 사용자가 "토큰미터 고도화 진행" 재지시 → AskUserQuestion "신규: 로컬 LLM 프록시" 명시 선택 (build-spree·2차 우회 경고 고지 후).
+- 비-매매 메타룰, 사용자 명시 + 이유 박제 시 우회 가능. 단 D-040은 "post-publish 재동결" 명시했으므로 이는 그 직후 재우회 — **반복 시 ritual/build-spree 위험 가중**을 명시 기록.
+- 선택 기능 = STRATEGY 헤드라인 Pro+ 차별점(OpenAI-호환 프록시로 로컬 LLM TTFT/ITL/TPS ms 측정). 경쟁자 0이 하는 유일 차별.
+**범위 제한 (foundation only)**: 전체 Pro+ 비전 아님. 증분 1 = OpenAI-호환 `/v1/chat/completions` 계측(streaming+non-streaming) + 투명 passthrough. 4개 백엔드(Ollama·LM Studio·llama.cpp·vLLM) 공통분모 = OpenAI-compat API. 기본 백엔드 Ollama(:11434).
+**리스크 인식**: ① D-025 stop-loss(~7/8·200h) 시간소비 추가 가속 ② 진짜 레버=distribution(메모리 반복), 기능 아님 ③ v0.1.19도 미발행 상태에서 적층 ④ 2차 우회는 build-spree 패턴 자체. → 본 증분 후 **강한 재동결 권고**, 3차 우회는 새 명시+더 강한 고지 필요.
+**미집행**: publish/commit은 사용자 지시·게이트 후. 로컬 빌드·테스트까지만.
+
 ## D-040. v0.1.19 sub-agent & cache 비용 귀속 — PMF 동결룰 1회 우회
 **날짜**: 2026-06-28
 **결정**: 유료 0건 상태에서 신규기능(sub-agent 비용 귀속 분석) 추가. PMF "결제 0건 → 신규기능 금지" 메타룰을 의식적으로 1회 우회.

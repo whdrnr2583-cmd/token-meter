@@ -35,6 +35,7 @@ export function migrate(db: Database.Database): void {
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       total_duration_ms INTEGER,
       tps REAL,
+      ttft_ms INTEGER,
       usd_estimate REAL NOT NULL DEFAULT 0,
       agent_id TEXT
     );
@@ -145,6 +146,10 @@ export function migrate(db: Database.Database): void {
   if (!columnExists(db, 'tool_events', 'agent_id')) {
     db.exec(`ALTER TABLE tool_events ADD COLUMN agent_id TEXT`);
   }
+  // Local LLM proxy (v0.1.20): per-call time-to-first-token. Additive/nullable.
+  if (!columnExists(db, 'token_events', 'ttft_ms')) {
+    db.exec(`ALTER TABLE token_events ADD COLUMN ttft_ms INTEGER`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
@@ -162,8 +167,8 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
     INSERT OR IGNORE INTO token_events
       (ts, source, source_kind, model, project, session_id, request_id,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       total_duration_ms, tps, usd_estimate, agent_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_duration_ms, tps, ttft_ms, usd_estimate, agent_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   // Backfill agent_id onto a row that already existed (INSERT OR IGNORE skipped
   // it). Lets a re-ingest (`ingest --force`) tag historical sub-agent rows
@@ -189,6 +194,7 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         r.cache_write_tokens,
         r.total_duration_ms,
         r.tps,
+        r.ttft_ms ?? null,
         r.usd_estimate,
         r.agent_id ?? null,
       );

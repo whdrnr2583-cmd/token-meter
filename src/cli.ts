@@ -2,13 +2,16 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { migrate, openDb } from './db.js';
 import { ingestAll } from './ingest.js';
-import { byMcp, byModel, byProject, daily, overview, subagentCosts } from './stats.js';
+import { byMcp, byModel, byProject, daily, localPerf, overview, subagentCosts } from './stats.js';
 import { clampDaysToEntitlement, getEntitlement, isProTier } from './license.js';
 
 const USAGE = `Usage:
   token-meter ingest [--force]              Scan JSONL → SQLite
   token-meter stats [days=30]               Print summary
   token-meter subagents [days=30]           Main vs sub-agent (Task/Agent) cost split
+  token-meter local [days=30]               Local LLM perf (TTFT / TPS) captured by the proxy
+  token-meter proxy [--port N] [--backend URL] [--label NAME]
+                                            Proxy a local OpenAI-compatible LLM and measure it
   token-meter export <csv|json> [days=30] [--out <path>]
                                             Export data (Pro)
   token-meter serve                         Run the dashboard at http://localhost:8765
@@ -147,6 +150,28 @@ function printSubagents(db: ReturnType<typeof openDb>, days: number): void {
   }
 }
 
+function printLocalPerf(db: ReturnType<typeof openDb>, days: number): void {
+  const rows = localPerf(db, days);
+  console.log(`\n=== Local LLM perf (${days}d) ===`);
+  if (rows.length === 0) {
+    console.log(
+      'No local calls captured yet. Run `token-meter proxy` in front of your ' +
+        'local LLM (Ollama/LM Studio/llama.cpp/vLLM) and point your client at it.',
+    );
+    return;
+  }
+  console.log('source        model                    calls   avg_tps   avg_ttft   out');
+  for (const r of rows) {
+    const tps = r.avg_tps != null ? r.avg_tps.toFixed(1) : '—';
+    const ttft = r.avg_ttft_ms != null ? `${Math.round(r.avg_ttft_ms)}ms` : '—';
+    console.log(
+      `${(r.source ?? '-').padEnd(13)} ${r.model.slice(0, 24).padEnd(24)} ` +
+        `${String(r.calls).padStart(5)}  ${tps.padStart(7)}  ${ttft.padStart(8)}  ` +
+        `${fmtTokens(r.output).padStart(6)}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
 
@@ -163,6 +188,23 @@ async function main(): Promise<void> {
     const { startDashboard } = await import('./server.js');
     await startDashboard();
     // startDashboard keeps the process alive via app.listen + setInterval.
+    return;
+  }
+
+  if (cmd === 'proxy') {
+    const flagVal = (name: string): string | undefined => {
+      const i = rest.indexOf(name);
+      return i !== -1 ? rest[i + 1] : undefined;
+    };
+    const portRaw = flagVal('--port');
+    const port = portRaw ? Number.parseInt(portRaw, 10) : undefined;
+    const { startProxy } = await import('./proxy.js');
+    await startProxy({
+      port: port !== undefined && Number.isFinite(port) ? port : undefined,
+      backend: flagVal('--backend'),
+      label: flagVal('--label'),
+    });
+    // startProxy keeps the process alive via server.listen.
     return;
   }
 
@@ -348,6 +390,15 @@ async function main(): Promise<void> {
       );
     }
     printSubagents(db, days);
+    return;
+  }
+
+  if (cmd === 'local') {
+    const daysArg = rest.find((s) => /^\d+$/.test(s));
+    const requested = daysArg ? Number.parseInt(daysArg, 10) : 30;
+    const ent = getEntitlement();
+    const days = clampDaysToEntitlement(requested, ent.tier);
+    printLocalPerf(db, days);
     return;
   }
 

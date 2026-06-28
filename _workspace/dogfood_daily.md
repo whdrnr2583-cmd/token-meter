@@ -60,7 +60,7 @@ cd "/mnt/c/Users/whdrn/Desktop/money/token-pulse" && cmd.exe /c "npx -y @whdrnr2
 | 5/25 | _ | _ | _ | _ | ✓ | dogfood $183.88 / 460 events. **feat(pro) commit `d2dcdff`** — forecast·CSV/JSON export·weekly digest·trim suggestions, build+test 통과, **미발행**. PMF 게이트 위반 여지 (결제 0건 + 신규기능) — 5/27 처리 결정 예정. |
 | 5/26 | _ | _ | _ | _ | ✓ | dogfood $114.02 / 302 events. 커밋 0. |
 | 5/27 | _ | _ | _ | _ | ✓ | **v0.1.17 publish** (forecast·CSV/JSON export·weekly digest·trim suggestions). PMF 게이트 1회 우회 (결제 0건, 사용자 명시 결정). feat/pro-batch → main merge 완료. 7d $1,627.62 / 3,377 events (opus-4.7 98%). |
-| 6/28 | _ | _ | _ | _ | ✓ | **v0.1.19 구현 (미발행)** — sub-agent & cache 비용 귀속(`agent_id` 컬럼·`subagent_costs` MCP tool·`subagents` CLI). PMF 게이트 1회 우회 (결제 0건, 사용자 명시 "고도화 진행"→AskUserQuestion "신규기능 고도화" 선택, D-040). 4-check ✅ (75 test pass·audit ALL HOLD·build OK). 빌드된 MCP boots·tools/list에 subagent_costs 노출 확인. Windows DB smoke = sub-agent 파일 0(예상, 실데이터는 WSL). publish/commit 미집행(사용자 지시 대기). |
+| 6/28 | _ | _ | _ | _ | ✓ | **v0.1.19 구현·커밋·push (미발행)** — sub-agent & cache 비용 귀속(`agent_id` 컬럼·`subagent_costs` MCP tool·`subagents` CLI). PMF 1회 우회(D-040). commit 7687724 push 완료. 빌드된 MCP boots·tools/list 노출 확인. **→ v0.1.20 (미발행)** — 로컬 LLM 프록시 foundation(`token-meter proxy`·`local` CLI·`ttft_ms` 컬럼·OpenAI-compat `/v1/chat/completions` TTFT/TPS 계측·Ollama default). PMF **2차** 우회(같은 세션, D-041, build-spree 경고 고지 후 사용자 명시). 4-check ✅ (81 test pass·audit ALL HOLD·build OK). npm publish는 web-auth E404로 사용자 측 막힘→legacy auth 안내. 발행 시 0.1.18→0.1.20(두 기능 합본). |
 
 ---
 
