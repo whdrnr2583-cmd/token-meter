@@ -5,6 +5,16 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21] — 2026-06-28
+
+### Security
+- **Local proxy now binds to 127.0.0.1 only.** `token-meter proxy` (v0.1.20)
+  started its HTTP server with no host argument, so Node bound it to 0.0.0.0
+  (all interfaces) — exposing the proxy, and the local LLM behind it, to the
+  LAN — even though the startup log claimed `http://127.0.0.1`. Now bound to
+  loopback, matching the dashboard's local-first 127.0.0.1 invariant. No API
+  change. (OSS-maintain bug/security patch — D-042.)
+
 ## [0.1.20] — 2026-06-28
 
 ### Added

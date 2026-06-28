@@ -258,7 +258,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<void> {
   const label = backendLabel(backend, opts.label);
   const server = createProxyServer(opts);
   await new Promise<void>((resolve) => {
-    server.listen(port, () => {
+    // Bind loopback only — this proxy fronts a local LLM; exposing it on
+    // 0.0.0.0 would let anyone on the LAN use/observe it. Matches the
+    // dashboard's 127.0.0.1 bind (local-first invariant).
+    server.listen(port, '127.0.0.1', () => {
       console.log(
         `token-meter proxy listening on http://127.0.0.1:${port} → ${backend} ` +
           `(source label: ${label})`,
