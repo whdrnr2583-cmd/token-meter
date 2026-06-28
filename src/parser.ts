@@ -39,7 +39,11 @@ export interface ParseResult {
   tools: ToolEvent[];
 }
 
-export function parseJsonlFile(filePath: string, projectName: string): ParseResult {
+export function parseJsonlFile(
+  filePath: string,
+  projectName: string,
+  agentId: string | null = null,
+): ParseResult {
   const content = readFileSync(filePath, 'utf-8');
   const lines = content.split('\n');
   const sessionId = basename(filePath).replace(/\.jsonl$/, '');
@@ -101,6 +105,7 @@ export function parseJsonlFile(filePath: string, projectName: string): ParseResu
               cacheRead,
               cacheWrite,
             }),
+            agent_id: agentId,
           });
         }
       }
@@ -132,6 +137,7 @@ export function parseJsonlFile(filePath: string, projectName: string): ParseResu
           response_chars: responseChars,
           response_tokens_est: estimateTokensFromText(text),
           latency_ms: Math.max(0, ts - paired.ts),
+          agent_id: agentId,
         });
         toolUseTimestamps.delete(block.tool_use_id);
       }

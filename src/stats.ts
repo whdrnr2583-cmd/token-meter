@@ -460,3 +460,132 @@ export function wasteSignals(
     .all(since, ...sc.params) as CacheWasteDayRow[];
   return { tool_outliers, cache_waste_days };
 }
+
+export interface SubagentBucket {
+  bucket: 'main' | 'subagent';
+  usd: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  events: number;
+}
+
+export interface SubagentRow {
+  agent_id: string;
+  models: string; // comma-separated distinct models, e.g. "haiku-4-5,sonnet-4-6"
+  usd: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  events: number;
+  first_ts: number | null;
+  last_ts: number | null;
+}
+
+export interface SubagentInvocationRow {
+  tool_name: string; // 'Task' | 'Agent'
+  calls: number;
+  avg_latency_ms: number;
+  max_latency_ms: number;
+  total_response_tokens: number;
+}
+
+export interface SubagentCosts {
+  split: { main: SubagentBucket; subagent: SubagentBucket };
+  subagent_share_pct: number; // sub-agent USD as a % of total USD in the window
+  top: SubagentRow[];
+  invocations: SubagentInvocationRow[];
+}
+
+/**
+ * Sub-agent cost attribution. Splits token spend into main-session vs
+ * sub-agent (Task/Agent) work, lists the priciest sub-agents, and pairs them
+ * with the parent-side invocation latency from tool_events. LLM-free — pure
+ * aggregation over the agent_id column stamped at ingest.
+ *
+ * Requires `ingest --force` once after upgrading so historical sub-agent rows
+ * get their agent_id backfilled; rows ingested before v0.1.19 read as 'main'
+ * until then.
+ */
+export function subagentCosts(
+  db: Database.Database,
+  days: number,
+  limit = 10,
+  scope?: ScopeFilter,
+): SubagentCosts {
+  const since = dayWindow(days);
+  const sc = scopeClause(scope);
+  const bucketRows = db
+    .prepare(
+      `SELECT
+        CASE WHEN agent_id IS NULL THEN 'main' ELSE 'subagent' END AS bucket,
+        COALESCE(SUM(usd_estimate), 0)        AS usd,
+        COALESCE(SUM(input_tokens), 0)        AS input,
+        COALESCE(SUM(output_tokens), 0)       AS output,
+        COALESCE(SUM(cache_read_tokens), 0)   AS cache_read,
+        COALESCE(SUM(cache_write_tokens), 0)  AS cache_write,
+        COUNT(*)                              AS events
+       FROM token_events
+       WHERE ts >= ?${sc.clause}
+       GROUP BY bucket`,
+    )
+    .all(since, ...sc.params) as Array<SubagentBucket>;
+  const empty = (bucket: 'main' | 'subagent'): SubagentBucket => ({
+    bucket,
+    usd: 0,
+    input: 0,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    events: 0,
+  });
+  const split = {
+    main: bucketRows.find((r) => r.bucket === 'main') ?? empty('main'),
+    subagent: bucketRows.find((r) => r.bucket === 'subagent') ?? empty('subagent'),
+  };
+  const totalUsd = split.main.usd + split.subagent.usd;
+  const subagent_share_pct = totalUsd > 0 ? (split.subagent.usd / totalUsd) * 100 : 0;
+
+  const top = db
+    .prepare(
+      `SELECT
+        agent_id,
+        GROUP_CONCAT(DISTINCT model)          AS models,
+        COALESCE(SUM(usd_estimate), 0)        AS usd,
+        COALESCE(SUM(input_tokens), 0)        AS input,
+        COALESCE(SUM(output_tokens), 0)       AS output,
+        COALESCE(SUM(cache_read_tokens), 0)   AS cache_read,
+        COALESCE(SUM(cache_write_tokens), 0)  AS cache_write,
+        COUNT(*)                              AS events,
+        MIN(ts)                               AS first_ts,
+        MAX(ts)                               AS last_ts
+       FROM token_events
+       WHERE ts >= ? AND agent_id IS NOT NULL${sc.clause}
+       GROUP BY agent_id
+       ORDER BY usd DESC
+       LIMIT ?`,
+    )
+    .all(since, ...sc.params, limit) as SubagentRow[];
+
+  // Parent-side invocation cost: the Task/Agent tool calls that *spawned* the
+  // sub-agents. Latency here is wall-clock the sub-agent took; the token cost
+  // above is what it burned. Together they answer "are my sub-agents worth it".
+  const invocations = db
+    .prepare(
+      `SELECT
+        tool_name,
+        COUNT(*)                                AS calls,
+        COALESCE(AVG(latency_ms), 0)            AS avg_latency_ms,
+        COALESCE(MAX(latency_ms), 0)            AS max_latency_ms,
+        COALESCE(SUM(response_tokens_est), 0)   AS total_response_tokens
+       FROM tool_events
+       WHERE ts >= ? AND tool_name IN ('Task', 'Agent')${sc.clause}
+       GROUP BY tool_name
+       ORDER BY calls DESC`,
+    )
+    .all(since, ...sc.params) as SubagentInvocationRow[];
+
+  return { split, subagent_share_pct, top, invocations };
+}

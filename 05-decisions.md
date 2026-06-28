@@ -2,6 +2,24 @@
 
 기록 시점의 결정과 근거를 박제. 번복 시 새 항목 추가하고 이유 기록.
 
+## D-040. v0.1.19 sub-agent & cache 비용 귀속 — PMF 동결룰 1회 우회
+**날짜**: 2026-06-28
+**결정**: 유료 0건 상태에서 신규기능(sub-agent 비용 귀속 분석) 추가. PMF "결제 0건 → 신규기능 금지" 메타룰을 의식적으로 1회 우회.
+**우회 사유 (박제 의무)**:
+- 사용자가 일일점검 세션 중 "토큰미터 고도화 진행" 명시 지시 → 방향 선택 AskUserQuestion에서 "신규기능 고도화(우회)" 선택.
+- 비-매매 메타룰은 사용자 명시 + 이유 박제 시 우회 가능 (rule_integrity 메모리). 전례: D-031 우회(v0.1.16), v0.1.17(5/27).
+- 선택 기능 = 4지선다 중 "서브에이전트·캐시 비용 심화분석" — 기존 #1 moat("MCP·도구별 분석") 확장이며 dogfood 데이터(Agent 91.6s avg·cache read 660M)가 직접 가리킨 항목.
+**구현 범위**:
+- 신규 스키마: `token_events.agent_id` / `tool_events.agent_id` (additive·nullable, ALTER 가드, USD/dedup 불변).
+- ingest가 `<project>/<sessionId>/subagents/agent-<id>.jsonl` 파일경로에서 agent_id 스탬프 (JSONL 본문의 sessionId는 부모 것이라 경로가 유일 식별원).
+- 백필: `ingest --force` 시 기존 행에 agent_id UPDATE (NULL일 때만 → 메인패스가 태그 덮어쓰기 X).
+- `subagentCosts()` 쿼리 + MCP tool/prompt `subagent_costs` + CLI `subagents`.
+- 테스트 3종 추가(75 pass), audit ALL INVARIANTS HOLD.
+**리스크 인식**: D-025 stop-loss(~7/8, 6개월 매출 0 + 200h) 타임라인을 시간소비로 가속. 결제 견인 아님 — 진짜 레버는 distribution. 본 우회는 1회성, post-publish 신규기능 재동결.
+**미집행**: publish/commit/tag는 사용자 명시 지시 후만 (현재 로컬 빌드·테스트까지만). package.json 0.1.19 bump 완료, npm 미발행.
+
+---
+
 ## D-001. 결제 인프라: Polar.sh
 **날짜**: 2026-05-13
 **결정**: Stripe 직접 대신 Polar.sh 사용

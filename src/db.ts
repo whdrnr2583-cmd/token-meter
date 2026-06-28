@@ -35,7 +35,8 @@ export function migrate(db: Database.Database): void {
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       total_duration_ms INTEGER,
       tps REAL,
-      usd_estimate REAL NOT NULL DEFAULT 0
+      usd_estimate REAL NOT NULL DEFAULT 0,
+      agent_id TEXT
     );
 
     -- One API call = one billing event. request_id is globally unique per source.
@@ -66,7 +67,8 @@ export function migrate(db: Database.Database): void {
       tool_use_id TEXT NOT NULL,
       response_chars INTEGER NOT NULL DEFAULT 0,
       response_tokens_est INTEGER NOT NULL DEFAULT 0,
-      latency_ms INTEGER
+      latency_ms INTEGER,
+      agent_id TEXT
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_events_unique
@@ -131,6 +133,27 @@ export function migrate(db: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
   `);
+
+  // Sub-agent attribution (v0.1.19). `CREATE TABLE IF NOT EXISTS` above already
+  // carries agent_id on a fresh DB; this ALTER backfills the column onto a DB
+  // created by an earlier version. Additive + nullable — no data is rewritten,
+  // so USD/dedup invariants are untouched. Re-run `ingest --force` to populate
+  // the column on historical sub-agent rows.
+  if (!columnExists(db, 'token_events', 'agent_id')) {
+    db.exec(`ALTER TABLE token_events ADD COLUMN agent_id TEXT`);
+  }
+  if (!columnExists(db, 'tool_events', 'agent_id')) {
+    db.exec(`ALTER TABLE tool_events ADD COLUMN agent_id TEXT`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
+  `);
+}
+
+function columnExists(db: Database.Database, table: string, column: string): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return cols.some((c) => c.name === column);
 }
 
 export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): number {
@@ -139,9 +162,16 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
     INSERT OR IGNORE INTO token_events
       (ts, source, source_kind, model, project, session_id, request_id,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       total_duration_ms, tps, usd_estimate)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_duration_ms, tps, usd_estimate, agent_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  // Backfill agent_id onto a row that already existed (INSERT OR IGNORE skipped
+  // it). Lets a re-ingest (`ingest --force`) tag historical sub-agent rows
+  // that were stored before the agent_id column existed. Only fills when the
+  // stored value is NULL, so a later main-session pass never clobbers a tag.
+  const backfill = db.prepare(
+    `UPDATE token_events SET agent_id = ? WHERE source = ? AND request_id = ? AND agent_id IS NULL`,
+  );
   const tx = db.transaction((batch: TokenEvent[]) => {
     let inserted = 0;
     for (const r of batch) {
@@ -160,8 +190,12 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         r.total_duration_ms,
         r.tps,
         r.usd_estimate,
+        r.agent_id ?? null,
       );
       if (result.changes > 0) inserted++;
+      else if (r.agent_id != null && r.request_id != null) {
+        backfill.run(r.agent_id, r.source, r.request_id);
+      }
     }
     return inserted;
   });
@@ -173,9 +207,12 @@ export function insertToolEvents(db: Database.Database, rows: ToolEvent[]): numb
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO tool_events
       (ts, source, project, session_id, tool_name, mcp_server,
-       tool_use_id, response_chars, response_tokens_est, latency_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       tool_use_id, response_chars, response_tokens_est, latency_ms, agent_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const backfill = db.prepare(
+    `UPDATE tool_events SET agent_id = ? WHERE tool_use_id = ? AND agent_id IS NULL`,
+  );
   const tx = db.transaction((batch: ToolEvent[]) => {
     let inserted = 0;
     for (const r of batch) {
@@ -190,8 +227,10 @@ export function insertToolEvents(db: Database.Database, rows: ToolEvent[]): numb
         r.response_chars,
         r.response_tokens_est,
         r.latency_ms,
+        r.agent_id ?? null,
       );
       if (result.changes > 0) inserted++;
+      else if (r.agent_id != null) backfill.run(r.agent_id, r.tool_use_id);
     }
     return inserted;
   });

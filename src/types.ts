@@ -55,6 +55,12 @@ export interface TokenEvent {
   total_duration_ms: number | null;
   tps: number | null;
   usd_estimate: number;
+  // Sub-agent attribution. `null` = main-session event; `agent-<id>` = the
+  // Task/Agent sub-agent whose JSONL file (<project>/<sessionId>/subagents/
+  // agent-<id>.jsonl) this row came from. Stamped at ingest from the file
+  // path, not the JSONL body — sub-agent entries carry the *parent* sessionId,
+  // so without this the inner Haiku/Sonnet cost is indistinguishable.
+  agent_id?: string | null;
 }
 
 export interface ToolEvent {
@@ -68,4 +74,5 @@ export interface ToolEvent {
   response_chars: number;
   response_tokens_est: number;
   latency_ms: number | null;
+  agent_id?: string | null; // see TokenEvent.agent_id
 }

@@ -2,12 +2,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { migrate, openDb } from './db.js';
 import { ingestAll } from './ingest.js';
-import { byMcp, byModel, byProject, daily, overview } from './stats.js';
+import { byMcp, byModel, byProject, daily, overview, subagentCosts } from './stats.js';
 import { clampDaysToEntitlement, getEntitlement, isProTier } from './license.js';
 
 const USAGE = `Usage:
   token-meter ingest [--force]              Scan JSONL → SQLite
   token-meter stats [days=30]               Print summary
+  token-meter subagents [days=30]           Main vs sub-agent (Task/Agent) cost split
   token-meter export <csv|json> [days=30] [--out <path>]
                                             Export data (Pro)
   token-meter serve                         Run the dashboard at http://localhost:8765
@@ -103,6 +104,46 @@ function printByMcp(db: ReturnType<typeof openDb>, days: number): void {
         `${fmtTokens(r.total_response_tokens).padStart(8)}  ` +
         `${Math.round(r.avg_latency_ms)}ms`,
     );
+  }
+}
+
+function printSubagents(db: ReturnType<typeof openDb>, days: number): void {
+  const sa = subagentCosts(db, days, 15);
+  const { main, subagent } = sa.split;
+  console.log(`\n=== Sub-agent costs (${days}d) ===`);
+  console.log(
+    `Main:       ${fmtUsd(main.usd).padStart(11)}  events=${main.events}`,
+  );
+  console.log(
+    `Sub-agents: ${fmtUsd(subagent.usd).padStart(11)}  events=${subagent.events}  ` +
+      `(${sa.subagent_share_pct.toFixed(1)}% of spend)`,
+  );
+  if (subagent.events === 0) {
+    console.log(
+      'No sub-agent rows tagged. Run `token-meter ingest --force` once to backfill ' +
+        'rows ingested before v0.1.19.',
+    );
+  } else {
+    console.log('\nPriciest sub-agents:');
+    for (const a of sa.top) {
+      const models = (a.models ?? '')
+        .split(',')
+        .map((m) => m.replace(/^claude-/, '').replace(/-\d{8}$/, ''))
+        .join(',');
+      console.log(
+        `  ${a.agent_id.padEnd(22)} ${fmtUsd(a.usd).padStart(11)}  ` +
+          `events=${String(a.events).padStart(4)}  out=${fmtTokens(a.output).padStart(7)}  ${models}`,
+      );
+    }
+  }
+  if (sa.invocations.length > 0) {
+    console.log('\nInvocation latency (parent-side Task/Agent calls):');
+    for (const inv of sa.invocations) {
+      console.log(
+        `  ${inv.tool_name.padEnd(6)} calls=${String(inv.calls).padStart(4)}  ` +
+          `avg=${(inv.avg_latency_ms / 1000).toFixed(1)}s  max=${(inv.max_latency_ms / 1000).toFixed(1)}s`,
+      );
+    }
   }
 }
 
@@ -291,6 +332,22 @@ async function main(): Promise<void> {
     } else {
       process.stdout.write(content + '\n');
     }
+    return;
+  }
+
+  if (cmd === 'subagents') {
+    const daysArg = rest.find((s) => /^\d+$/.test(s));
+    const requested = daysArg ? Number.parseInt(daysArg, 10) : 30;
+    const ent = getEntitlement();
+    const days = clampDaysToEntitlement(requested, ent.tier);
+    if (days < requested) {
+      const tierLabel = ent.tier === 'free' ? 'Free' : 'Pro';
+      console.error(
+        `[${tierLabel} tier] history clamped to ${days} days (requested ${requested}). ` +
+          `See https://token-meter.dev#pricing`,
+      );
+    }
+    printSubagents(db, days);
     return;
   }
 

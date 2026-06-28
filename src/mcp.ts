@@ -10,6 +10,7 @@ import {
   byProject,
   dailyByModel,
   overview,
+  subagentCosts,
   type DailyByModelRow,
   type ScopeFilter,
 } from './stats.js';
@@ -253,6 +254,7 @@ export async function startMcpServer(): Promise<void> {
         '  • usage_summary  — daily table by (day × model) with $/tokens/calls, scoped to current platform (WSL/Windows/Codex auto-detect)\n' +
         '  • recent_sessions — sessions with paste-ready `claude --resume` / `codex resume` commands\n' +
         '  • session_tools  — per-session tool breakdown to find slow / heavy / unexpected tools\n' +
+        '  • subagent_costs — main vs sub-agent (Task/Agent) spend split, priciest sub-agents, invocation latency\n' +
         '  • refresh_data   — re-scan local logs for new activity\n\n' +
         'Other surfaces (same package):\n' +
         '  • `npx @whdrnr2583/token-meter stats [days]`     — terminal stats\n' +
@@ -549,6 +551,105 @@ export async function startMcpServer(): Promise<void> {
   );
 
   server.registerTool(
+    'subagent_costs',
+    {
+      title: 'sub-agent costs (Token Meter)',
+      description:
+        'Split spend into main-session vs sub-agent (Task/Agent) work, list the priciest sub-agents (model mix · tokens · cache), and pair them with parent-side invocation latency. Answers "are my sub-agents worth what they cost". Run `refresh_data` (or `ingest --force` once) so older rows get the sub-agent tag.',
+      inputSchema: {
+        period: z.enum(['today', 'week', 'month']).default('week'),
+        scope: z
+          .enum(['auto', 'all', 'wsl', 'linux', 'win', 'windows', 'codex', 'claude-code'])
+          .default('auto')
+          .describe(
+            'which source to include — "auto" filters by current process.platform; "all" disables the filter',
+          ),
+        limit: z.number().int().min(1).max(50).default(10),
+      },
+      annotations: {
+        title: 'sub-agent costs (Token Meter)',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ period, scope, limit }) => {
+      if (countTokenEvents(db) === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                'Token Meter has no usage data yet.',
+                firstRunGuidance || 'Use Claude Code, then run `token-meter ingest`.',
+                '',
+                ...discoveryFooter('🔧 After first usage: refresh_data → subagent_costs'),
+              ].join('\n'),
+            },
+          ],
+        };
+      }
+      const { scope: scopeFilter, label: scopeLabel } = resolveScope(scope as ScopeInput);
+      const days = periodWindowDays(period);
+      const sa = subagentCosts(db, days, limit, scopeFilter);
+      const periodLabel = period === 'today' ? 'today' : period === 'week' ? 'last 7d' : 'last 30d';
+      const shortModel = (m: string): string =>
+        m.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+      const { main, subagent } = sa.split;
+      const lines: string[] = [
+        `Token Meter · sub-agent costs · ${periodLabel} · scope: ${scopeLabel}`,
+        '',
+      ];
+      if (subagent.events === 0) {
+        lines.push('No sub-agent (Task/Agent) token rows tagged in this window.');
+        lines.push(
+          'If you have used sub-agents, run `token-meter ingest --force` once to backfill',
+        );
+        lines.push('the sub-agent tag onto rows ingested before v0.1.19, then retry.');
+      } else {
+        lines.push(
+          `Split    : main ${fmtUsd(main.usd)} (${main.events.toLocaleString()} calls) · ` +
+            `sub-agents ${fmtUsd(subagent.usd)} (${subagent.events.toLocaleString()} calls)`,
+        );
+        lines.push(
+          `Share    : sub-agents are ${sa.subagent_share_pct.toFixed(1)}% of spend · ` +
+            `${fmtTok(subagent.cache_read)} cache read · ${fmtTok(subagent.cache_write)} cache write`,
+        );
+        lines.push('');
+        lines.push('Priciest sub-agents:');
+        for (const a of sa.top) {
+          const models = (a.models || '')
+            .split(',')
+            .map(shortModel)
+            .join(',');
+          lines.push(
+            `  ${a.agent_id}  ${fmtUsd(a.usd)} · ${a.events}x · ${models} · ` +
+              `out ${fmtTok(a.output)} · cache_rd ${fmtTok(a.cache_read)}`,
+          );
+        }
+      }
+      if (sa.invocations.length > 0) {
+        lines.push('');
+        lines.push('Invocation latency (parent-side Task/Agent calls):');
+        for (const inv of sa.invocations) {
+          lines.push(
+            `  ${inv.tool_name}  ${inv.calls}x · avg ${(inv.avg_latency_ms / 1000).toFixed(1)}s · ` +
+              `max ${(inv.max_latency_ms / 1000).toFixed(1)}s`,
+          );
+        }
+      }
+      lines.push('');
+      lines.push(
+        ...discoveryFooter(
+          '🔧 Next: session_tools <id> to drill into one session · usage_summary for the day × model table',
+        ),
+      );
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  server.registerTool(
     'refresh_data',
     {
       title: 'refresh data (Token Meter)',
@@ -651,6 +752,31 @@ export async function startMcpServer(): Promise<void> {
             content: {
               type: 'text',
               text: `Call the token-meter session_tools tool with session_id="${session_id}" and limit=${n}. Highlight which tools dominated by call count, response size, or average latency.`,
+            },
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerPrompt(
+    'subagent_costs',
+    {
+      title: 'sub-agent costs (Token Meter)',
+      description: 'Show main vs sub-agent spend split and the priciest sub-agents.',
+      argsSchema: {
+        period: z.string().optional().describe('today | week | month (default: week)'),
+      },
+    },
+    ({ period }) => {
+      const p = period === 'today' || period === 'month' ? period : 'week';
+      return {
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: `Call the token-meter subagent_costs tool with period="${p}". Tell me what share of spend my sub-agents (Task/Agent) account for, which sub-agents cost the most, and whether their invocation latency justifies the token cost.`,
             },
           },
         ],

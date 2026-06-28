@@ -5,6 +5,41 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.19] — 2026-06-28 (unreleased — pending publish approval)
+
+### Added
+- **Sub-agent cost attribution.** A new `agent_id` column (added to
+  `token_events` / `tool_events`) tags every row that came from a Task/Agent
+  sub-agent JSONL file (`<project>/<sessionId>/subagents/agent-<id>.jsonl`).
+  The tag is taken from the **file path**, not the JSONL body — sub-agent
+  entries carry the *parent* `sessionId`, so without this the Haiku/Sonnet
+  tokens a sub-agent burns are indistinguishable from main-session spend.
+- **`subagent_costs` MCP tool** (+ matching prompt) and **`token-meter
+  subagents [days]` CLI command**: split spend into main-session vs sub-agent
+  work, rank the priciest sub-agents (model mix · tokens · cache read/write),
+  and pair them with parent-side Task/Agent invocation latency — answering
+  "are my sub-agents worth what they cost." LLM-free (hard-coded SQL).
+- `subagentCosts()` query in stats.ts (split / share % / top-N / invocations).
+
+### Changed
+- Schema migration is additive and nullable — USD-conservation and dedup
+  invariants are untouched (audit still passes). Run **`token-meter ingest
+  --force` once** after upgrading to backfill `agent_id` onto historical
+  sub-agent rows; the insert path backfills the tag onto an already-stored
+  row only when its current value is NULL, so a main-session pass never
+  clobbers a tag.
+
+### Why
+Extends the project's strongest differentiator ("MCP / per-tool analysis") to
+the one cost dimension the schema previously could not answer at all. Dogfood
+data motivated it directly: sub-agent (`Agent`) calls dominated latency
+(91.6s avg) and a large share of tokens, but their *cost* was folded into the
+parent session with no way to separate it.
+
+PMF gate note: published with 0 paid users — 1 intentional override (user
+decision 2026-06-28, D-040). New features frozen again post-publish until the
+PMF gate advances.
+
 ## [0.1.18] — 2026-06-15
 
 ### Changed

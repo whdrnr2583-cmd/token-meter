@@ -140,19 +140,29 @@ export function ingestClaudeCode(
       // Those carry the Haiku / Sonnet rows when a parent session spawns a
       // sub-agent with an overridden model. Skipping the dir left those rows
       // invisible — the per-day model breakdown then under-counted Haiku.
-      let files: string[];
+      // Each entry pairs a file with its sub-agent id: null for project-root
+      // session files, `agent-<id>` for files under <sessionId>/subagents/.
+      // The id is taken from the file path, not the JSONL body, because
+      // sub-agent entries carry the parent sessionId — the path is the only
+      // place the sub-agent identity survives.
+      let files: Array<{ path: string; agentId: string | null }>;
       try {
         const entries = readdirSync(projectPath, { withFileTypes: true });
         files = entries
           .filter((e) => e.isFile() && e.name.endsWith('.jsonl'))
-          .map((e) => join(projectPath, e.name));
+          .map((e) => ({ path: join(projectPath, e.name), agentId: null }));
         for (const e of entries) {
           if (!e.isDirectory()) continue;
           const subDir = join(projectPath, e.name, 'subagents');
           if (!existsSync(subDir)) continue;
           try {
             for (const sf of readdirSync(subDir)) {
-              if (sf.endsWith('.jsonl')) files.push(join(subDir, sf));
+              if (sf.endsWith('.jsonl')) {
+                files.push({
+                  path: join(subDir, sf),
+                  agentId: sf.replace(/\.jsonl$/, ''),
+                });
+              }
             }
           } catch {
             /* unreadable subdir — skip silently */
@@ -161,7 +171,7 @@ export function ingestClaudeCode(
       } catch {
         continue;
       }
-      for (const filePath of files) {
+      for (const { path: filePath, agentId } of files) {
         summary.files_scanned++;
         let st: ReturnType<typeof statSync>;
         try {
@@ -176,7 +186,7 @@ export function ingestClaudeCode(
           prior.mtime_ms === Math.floor(st.mtimeMs) &&
           prior.size === st.size;
         if (unchanged) continue;
-        const { tokens, tools } = parseJsonlFile(filePath, prettyName);
+        const { tokens, tools } = parseJsonlFile(filePath, prettyName, agentId);
         const ti = insertTokenEvents(db, tokens);
         const tl = insertToolEvents(db, tools);
         recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);

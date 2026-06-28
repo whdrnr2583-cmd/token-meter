@@ -36,6 +36,7 @@ cd "/mnt/c/Users/whdrn/Desktop/money/token-pulse" && cmd.exe /c "npx -y @whdrnr2
 - [ ] **GitHub Star**: https://github.com/whdrnr2583-cmd/token-meter (상단 Star 카운트)
 - [ ] **Tally 응답**: https://tally.so/forms/2E16vD/submissions
 - [ ] **Gmail `hello@token-meter.dev`**: 라우팅 응답 1건이라도?
+- [ ] **카톡 promo 전환 watch (5/22~)**: GitHub ★ delta + 실 install. 따봉≠전환 — ★가 0→1+ 오르면 그 사람이 첫 진짜 신호. 4회 누적 카톡 promo 실 전환 0 추적 중 (1개월 회고 input).
 
 ---
 
@@ -49,7 +50,17 @@ cd "/mnt/c/Users/whdrn/Desktop/money/token-pulse" && cmd.exe /c "npx -y @whdrnr2
 | 5/16 | 0 | 0 | ? | ? | ✓ | dogfood 정상 — $0.7423 / 41 events / opus-4.7 위주. npm DL 0 (5/14·15 scanner burst 종료) |
 | 5/17 | 183* | 0 | ? | ? | ✓ | 🔴 **dogfood 경로 버그 발견** — cmd.exe ingest는 Windows home(`C:\…\.claude`)만 스캔, 실사용은 WSL(`/home/whdrnr/.claude`)에 있음. 실제 5/17 = **$285.84 / 268 events (WSL DB)**, Windows-only는 $0.29/15뿐. WSL 7d 누적 $1924.64 (5/15 $410·5/16 $468·5/17 $285.84). 이전 메모 USD(5/16 $0.74 등)는 전부 Windows-only 과소집계 — 절차 버그(제품 버그 아님). 4-check: node_modules OS 불일치 → `npm ci` 후 40/40 통과, 배포본 npm 0.1.9 정상. *npm DL 183=5/16 final, ★0 |
 | 5/18 | 19* | 0 | ? | ? | ✓ | dogfood 정상 — $177.36 / 186 events / opus-4.7 only / Codex 0. 7d 누적 $1837.44 / 2431 events. *npm DL 19 = 5/17 final(last-day API); 1주 누적 1088이나 단일일 19로 급락 = 5/14·15 scanner burst 완전 종료. ★0. W1 주간 회고 ↓섹션 |
-| 5/19 | _ | _ | _ | _ | _ | W1 retention check |
+| 5/19 | _ | _ | _ | _ | ✓ | v0.1.12→0.1.15 5건 publish (POSIX 경로 fix·"today"=calendar day·WSL dual-env·first-run guard·subagent JSONL scan). dogfood = primary. |
+| 5/20 | _ | 0 | _ | _ | ✓ | 🚨 **v0.1.16 publish via secondary working dir** (`/mnt/c/Users/whdrn/token-meter`) — primary와 5일간 평행 분기. daily-by-model + `scope` 필터 신규기능 추가 = PMF "신규기능금지" 룰 우회 1회 (Claude 70 / user 30, 동기 = 카톡 N=2 [[feedback_tokenmeter_kakao_signal_override]]). Y 진단으로 0.1.13~0.1.15는 primary publish 확정 ("Oversized tool responses" 마커). X 진행: secondary src/test/scripts/CHANGELOG → primary sync (51 files), primary build === published 0.1.16 dist (byte-identical), commit c2e17ab + tag v0.1.16 push. Secondary `_workspace/legacy/secondary_20260520/` archive (86MB). dogfood 7d = $2556 / 4599 events (opus-4.7 위주). [[feedback_tokenmeter_two_working_dir_drift]] |
+| 5/21 | _ | 0 | _ | _ | ✓ | dogfood $445.78 / 673 events (7d table 기준). |
+| 5/22 | 2040wk* | 0 | ? | ? | ✓ | **npm deprecate 0.1.0–0.1.15 적용** (Windows whoami=whdrnr2583, OTP 인터랙티브, 사용자 직접 실행). 메시지 "Outdated. Update to latest: npm i -g @whdrnr2583/token-meter@latest". 0.1.16(latest) 경고 없음 확인. 구버전 install 시 경고 = pull-model 하 유일 능동 최신화 유도(배포 위생, 신규기능 아님 → PMF 게이트 무관). dogfood 7d $2735 / 4689 events, opus-4.7 99% ($2712). *주간 DL 2040 = scanner 패턴 지속, 실 install 신호 X. ★0. cmd.exe `<` redirect + WSL→cmd 따옴표 doubling 함정 → .bat 리터럴 우회로 해결. **카톡 promo 4차 게시(strangers, 초보용 문구) → 따봉 4~5개만, 텍스트 응답·문의·install 0 = passive ack(전환신호 아님). 24h 내 ★/실 install delta로 전환 여부 cross-check 예정.** 방문자확인: 랜딩 분석 비콘 미설치 + wrangler 토큰 analytics:read 없음 → 방문자 데이터 현재 측정 불가. |
+
+| 5/23 | _ | 0 | ? | ? | ✓ | **첫 실제 방문자 데이터 (CF zone Traffic, 24h)** — 합 ≈1,487 req. 지리: Malaysia 969 · Netherlands 260 · US 175 · Brazil 48 · Japan 35. **한국 부재** = 5/22 카톡(한국 타겟) 클릭 ~0 확정 / NL·MY·US = 데이터센터·스캐너 봇 패턴. 판정 = **no real human entry** (raw 1,487은 봇 노이즈 false-positive). ★0 유지 → 따봉 4~5 전환 0 확정. 외부 실수요 신호 0이 5소스(★·DL·Gmail·따봉·방문자) 일관. 봇/사람 100% 분리는 비콘만 가능하나 한국 부재로 판정 충분. **CSV 4종 정밀(24h): total_requests 합 ~1,581(country top5 1,487과 일치) · unique_visitors 시간당 2-16 합~149(실 daily distinct ~50-100 IP) · percent_cached ≈0 · data_served 버스트. 봇 확정 근거: ①unique가 밤새 평탄(2-5AM 4-10)=분산IP 크롤러 시그니처(사람은 밤에 잠) ②cache≈0=매 요청 miss=스캐너 probing ③지리 MY969·NL260 지배·한국 부재 ④전환0. ~50-100/day는 스캐너·모니터 배경노이즈, 사람 0~극소수.** ⚠️정정: 5/23 1차 박제 "≈21,517 req"는 `data_cached`(바이트류) CSV 오독 — 실 requests는 ~1,581. cross-check 누락 사례([[feedback_agent_cross_check]]). 비콘 불필요. 질문 종료 — 외부 실수요 0 결론 확정. |
+| 5/24 | _ | _ | _ | _ | ✓ | dogfood $148.12 / 228 events. 사이트 GEO/SEO 작업 2커밋 (JSON-LD SoftwareApplication+FAQPage · SEO files+keyword meta) — npm 발행 X. |
+| 5/25 | _ | _ | _ | _ | ✓ | dogfood $183.88 / 460 events. **feat(pro) commit `d2dcdff`** — forecast·CSV/JSON export·weekly digest·trim suggestions, build+test 통과, **미발행**. PMF 게이트 위반 여지 (결제 0건 + 신규기능) — 5/27 처리 결정 예정. |
+| 5/26 | _ | _ | _ | _ | ✓ | dogfood $114.02 / 302 events. 커밋 0. |
+| 5/27 | _ | _ | _ | _ | ✓ | **v0.1.17 publish** (forecast·CSV/JSON export·weekly digest·trim suggestions). PMF 게이트 1회 우회 (결제 0건, 사용자 명시 결정). feat/pro-batch → main merge 완료. 7d $1,627.62 / 3,377 events (opus-4.7 98%). |
+| 6/28 | _ | _ | _ | _ | ✓ | **v0.1.19 구현 (미발행)** — sub-agent & cache 비용 귀속(`agent_id` 컬럼·`subagent_costs` MCP tool·`subagents` CLI). PMF 게이트 1회 우회 (결제 0건, 사용자 명시 "고도화 진행"→AskUserQuestion "신규기능 고도화" 선택, D-040). 4-check ✅ (75 test pass·audit ALL HOLD·build OK). 빌드된 MCP boots·tools/list에 subagent_costs 노출 확인. Windows DB smoke = sub-agent 파일 0(예상, 실데이터는 WSL). publish/commit 미집행(사용자 지시 대기). |
 
 ---
 
