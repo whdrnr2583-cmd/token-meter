@@ -1,5 +1,9 @@
 # Token Meter
 
+> **🟡 상태 (2026-06-28~): OSS-maintain.** stop-loss 회고(D-042 / `_workspace/stop_loss_retro_2026-06-28.md`)
+> 평결 = 보류. v0.1.20 게시 유지·무료·본인 dogfood. **신규 기능 빌드 종료(버그·보안만)**.
+> 에너지는 결제검증된 머니 트랙(Kolabtree·크몽·컨설팅)으로. 재개는 결제검증 distribution 채널 확보 후 사용자 명시 시만.
+
 > 클라우드 + 로컬 LLM **성능·비용 통합 옵저버빌리티**. AI 빌더용 단일 대시보드.
 
 ## 한 줄 정의
