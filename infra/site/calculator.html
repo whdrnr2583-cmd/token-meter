@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Free Claude &amp; Codex API cost calculator. Estimate USD cost from input, output, and cached tokens for Claude Opus 4.8, Sonnet 4.6, Haiku 4.5, Fable 5, and GPT-5. Current per-million-token pricing, updated 2026-06." />
+    <meta property="og:title" content="Claude API Cost Calculator — Opus, Sonnet, Haiku, Fable, GPT-5" />
+    <meta property="og:description" content="Estimate USD cost per million tokens for Claude Code & Codex models — input, output, and prompt-cache pricing. Free, no login." />
+    <meta property="og:url" content="https://token-meter.dev/calculator" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Claude API Cost Calculator" />
+    <meta name="twitter:description" content="Estimate USD cost per million tokens for Claude & Codex models — input, output, and cache pricing. Free." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>Claude API Cost Calculator — Opus 4.8, Sonnet 4.6, Haiku 4.5, Fable 5 &amp; GPT-5 pricing per million tokens</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/calculator" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Claude API Cost Calculator",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Any (web)",
+      "url": "https://token-meter.dev/calculator",
+      "description": "Free web calculator that estimates USD cost from input, output, cache-read, and cache-write tokens for Claude (Opus 4.8, Sonnet 4.6, Haiku 4.5, Fable 5) and OpenAI (GPT-5, GPT-5-codex) models.",
+      "isPartOf": { "@type": "SoftwareApplication", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "offers": [{ "@type": "Offer", "price": "0", "priceCurrency": "USD" }],
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How much does Claude Opus 4.8 cost per million tokens?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Claude Opus 4.8 (and Opus 4.7 / 4.6) costs $5.00 per million input tokens and $25.00 per million output tokens. Cached-prompt reads are about $0.50 per million (0.1x input) and 5-minute cache writes about $6.25 per million (1.25x input)." }
+        },
+        {
+          "@type": "Question",
+          "name": "How much do Claude Sonnet 4.6 and Haiku 4.5 cost?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Claude Sonnet 4.6 is $3.00 input / $15.00 output per million tokens. Claude Haiku 4.5 is $1.00 input / $5.00 output per million tokens. Claude Fable 5 is $10.00 input / $50.00 output." }
+        },
+        {
+          "@type": "Question",
+          "name": "Why is input cheaper than output?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Output (generated) tokens cost about 5x more than input (prompt) tokens on Claude models because generation is more compute-intensive than reading the prompt. A long answer costs far more than a long question of the same token count." }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I see what my actual Claude Code sessions cost?",
+          "acceptedAnswer": { "@type": "Answer", "text": "This calculator estimates list-price cost from token counts you enter. To see your real usage — tokens and USD-equivalent cost per project, model, and MCP tool — install Token Meter (free, MIT-licensed): npm install -g @whdrnr2583/token-meter, then run token-meter stats. It parses the JSONL logs Claude Code and Codex already write, 100% offline." }
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>Claude &amp; Codex<br /><span class="accent">cost calculator.</span></h1>
+      <p class="sub">
+        Estimate USD cost from input, output, and cached tokens for Claude (Opus 4.8, Sonnet 4.6, Haiku 4.5, Fable 5)
+        and OpenAI (GPT-5) models. List-price per-million rates, updated 2026-06. No login.
+      </p>
+    </section>
+
+    <main class="calc-main">
+      <section class="calc-card" aria-labelledby="calc-h">
+        <h2 id="calc-h">Estimate a cost</h2>
+        <div class="calc-grid">
+          <label>Model
+            <select id="model"></select>
+          </label>
+          <label>Input tokens
+            <input id="in" type="number" min="0" step="1000" value="1000000" inputmode="numeric" />
+          </label>
+          <label>Output tokens
+            <input id="out" type="number" min="0" step="1000" value="200000" inputmode="numeric" />
+          </label>
+          <label>Cache-read tokens
+            <input id="cr" type="number" min="0" step="1000" value="0" inputmode="numeric" />
+          </label>
+          <label>Cache-write tokens (5m)
+            <input id="cw" type="number" min="0" step="1000" value="0" inputmode="numeric" />
+          </label>
+        </div>
+        <div class="calc-result">
+          <div class="calc-total"><span id="total">$0.00</span><span class="calc-total-lab">estimated</span></div>
+          <ul class="calc-breakdown" id="breakdown"></ul>
+        </div>
+        <p class="calc-note">List-price estimate only — not your invoice. Flat-fee plans (Claude Max, etc.) are billed differently; this shows the metered-API equivalent.</p>
+      </section>
+
+      <section class="calc-table-sec" aria-labelledby="tbl-h">
+        <h2 id="tbl-h">Current pricing — USD per million tokens</h2>
+        <div class="calc-table-wrap">
+          <table class="calc-table">
+            <thead>
+              <tr><th scope="col">Model</th><th scope="col" class="num">Input</th><th scope="col" class="num">Output</th><th scope="col" class="num">Cache read</th><th scope="col" class="num">Cache write (5m)</th></tr>
+            </thead>
+            <tbody id="pricerows"></tbody>
+          </table>
+        </div>
+        <p class="calc-note">Anthropic prices from platform.claude.com (Opus 4.6+ is $5/$25; Opus 4.0/4.1 were $15/$75). OpenAI rows are estimates pending official confirmation. Cache read ≈ 0.1× input; 5-minute cache write ≈ 1.25× input.</p>
+      </section>
+
+      <section class="calc-cta">
+        <h2>Want your <em>actual</em> spend, not an estimate?</h2>
+        <p>
+          This page estimates cost from numbers you type. <strong>Token Meter</strong> reads the JSONL logs Claude Code and
+          Codex already write to disk and shows real tokens + USD-equivalent cost per project, model, and MCP tool —
+          100% offline, MIT-licensed, no account.
+        </p>
+        <pre class="code">npm install -g @whdrnr2583/token-meter
+token-meter stats 7</pre>
+        <p class="calc-note"><a href="/">← Token Meter home</a> · <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">Source on GitHub</a></p>
+      </section>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .calc-main { max-width: 880px; margin: 0 auto; padding: 8px 20px 64px; }
+      .calc-card, .calc-table-sec, .calc-cta { margin: 28px 0; }
+      .calc-card h2, .calc-table-sec h2, .calc-cta h2 { font-size: 20px; margin: 0 0 14px; }
+      .calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+      .calc-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; opacity: 0.85; }
+      .calc-grid select, .calc-grid input { font: inherit; font-size: 15px; padding: 9px 11px; border: 1px solid rgba(128,128,128,0.4); border-radius: 8px; background: rgba(128,128,128,0.06); color: inherit; }
+      .calc-grid input:focus, .calc-grid select:focus { outline: 2px solid var(--accent, #c9622e); outline-offset: 1px; }
+      .calc-result { margin-top: 18px; padding: 18px 20px; border: 1px solid rgba(128,128,128,0.25); border-radius: 12px; display: flex; flex-wrap: wrap; gap: 18px 32px; align-items: center; }
+      .calc-total { display: flex; flex-direction: column; }
+      .calc-total span:first-child { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent, #c9622e); line-height: 1; }
+      .calc-total-lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; margin-top: 4px; }
+      .calc-breakdown { list-style: none; margin: 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 4px; opacity: 0.9; }
+      .calc-breakdown b { font-variant-numeric: tabular-nums; }
+      .calc-note { font-size: 12.5px; opacity: 0.65; line-height: 1.55; margin: 12px 0 0; }
+      .calc-table-wrap { overflow-x: auto; }
+      .calc-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; min-width: 520px; }
+      .calc-table th, .calc-table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid rgba(128,128,128,0.18); }
+      .calc-table .num { text-align: right; }
+      .calc-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.6; }
+      .calc-table tbody tr.est td:first-child::after { content: " · est"; font-size: 10px; opacity: 0.5; }
+      .calc-cta pre { margin: 12px 0; }
+      @media (max-width: 560px) { .calc-total span:first-child { font-size: 30px; } }
+    </style>
+
+    <script>
+      // Pricing snapshot — mirrors src/pricing.ts (updated 2026-06-29). USD per 1M tokens.
+      var PRICES = {
+        'claude-fable-5':   { in: 10.0, out: 50.0, cr: 1.0,  cw: 12.5, label: 'Claude Fable 5' },
+        'claude-opus-4-8':  { in: 5.0,  out: 25.0, cr: 0.5,  cw: 6.25, label: 'Claude Opus 4.8' },
+        'claude-opus-4-7':  { in: 5.0,  out: 25.0, cr: 0.5,  cw: 6.25, label: 'Claude Opus 4.7' },
+        'claude-sonnet-4-6':{ in: 3.0,  out: 15.0, cr: 0.3,  cw: 3.75, label: 'Claude Sonnet 4.6' },
+        'claude-haiku-4-5': { in: 1.0,  out: 5.0,  cr: 0.1,  cw: 1.25, label: 'Claude Haiku 4.5' },
+        'gpt-5':            { in: 1.25, out: 10.0, cr: 0.125,cw: 0,    label: 'GPT-5', est: true },
+        'gpt-5-codex':      { in: 1.25, out: 10.0, cr: 0.125,cw: 0,    label: 'GPT-5-codex', est: true },
+        'gpt-5-mini':       { in: 0.25, out: 2.0,  cr: 0.025,cw: 0,    label: 'GPT-5-mini', est: true },
+        'gpt-4o':           { in: 2.5,  out: 10.0, cr: 1.25, cw: 0,    label: 'GPT-4o', est: true }
+      };
+      var ORDER = ['claude-fable-5','claude-opus-4-8','claude-opus-4-7','claude-sonnet-4-6','claude-haiku-4-5','gpt-5','gpt-5-codex','gpt-5-mini','gpt-4o'];
+
+      function usd(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+      function usd4(n) { return '$' + (Math.round(n * 10000) / 10000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }); }
+      function num(id) { var v = parseFloat(document.getElementById(id).value); return isFinite(v) && v > 0 ? v : 0; }
+
+      var sel = document.getElementById('model');
+      ORDER.forEach(function (k) {
+        var o = document.createElement('option');
+        o.value = k; o.textContent = PRICES[k].label + (PRICES[k].est ? ' (est)' : '');
+        sel.appendChild(o);
+      });
+      sel.value = 'claude-opus-4-8';
+
+      function recalc() {
+        var p = PRICES[sel.value];
+        var iN = num('in'), oN = num('out'), crN = num('cr'), cwN = num('cw');
+        var ci = iN * p.in / 1e6, co = oN * p.out / 1e6, cc = crN * p.cr / 1e6, cwc = cwN * p.cw / 1e6;
+        var total = ci + co + cc + cwc;
+        document.getElementById('total').textContent = usd(total);
+        var b = document.getElementById('breakdown');
+        b.innerHTML =
+          '<li>Input · ' + iN.toLocaleString() + ' × ' + usd(p.in) + '/1M = <b>' + usd4(ci) + '</b></li>' +
+          '<li>Output · ' + oN.toLocaleString() + ' × ' + usd(p.out) + '/1M = <b>' + usd4(co) + '</b></li>' +
+          (crN ? '<li>Cache read · ' + crN.toLocaleString() + ' × ' + usd(p.cr) + '/1M = <b>' + usd4(cc) + '</b></li>' : '') +
+          (cwN ? '<li>Cache write · ' + cwN.toLocaleString() + ' × ' + usd(p.cw) + '/1M = <b>' + usd4(cwc) + '</b></li>' : '');
+      }
+      ['model','in','out','cr','cw'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', recalc);
+      });
+      recalc();
+
+      var rows = document.getElementById('pricerows');
+      ORDER.forEach(function (k) {
+        var p = PRICES[k], tr = document.createElement('tr');
+        if (p.est) tr.className = 'est';
+        tr.innerHTML = '<td>' + p.label + '</td><td class="num">' + usd(p.in) + '</td><td class="num">' + usd(p.out) +
+          '</td><td class="num">' + usd(p.cr) + '</td><td class="num">' + (p.cw ? usd(p.cw) : '—') + '</td>';
+        rows.appendChild(tr);
+      });
+
+      document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>

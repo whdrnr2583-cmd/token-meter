@@ -1,5 +1,6 @@
-// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-05.
+// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-06-29.
 // Single source of truth. Heuristics only; no LLM call.
+// Source: platform.claude.com models/pricing. Opus 4.6+ is $5/$25 (was $15/$75 on Opus 4.0/4.1).
 
 interface ModelPrice {
   input: number;
@@ -9,9 +10,13 @@ interface ModelPrice {
 }
 
 const PRICES: Record<string, ModelPrice> = {
-  // Anthropic
-  'claude-opus-4-7': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  'claude-opus-4-6': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
+  // Anthropic — cacheRead = 0.1x input, cacheWrite5m = 1.25x input.
+  'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
+  'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-6': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
@@ -30,7 +35,8 @@ function resolveModel(model: string): ModelPrice {
   const normalized = model.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[normalized]) return PRICES[normalized];
   // family fallbacks
-  if (normalized.includes('opus')) return PRICES['claude-opus-4-7']!;
+  if (normalized.includes('fable')) return PRICES['claude-fable-5']!;
+  if (normalized.includes('opus')) return PRICES['claude-opus-4-8']!;
   if (normalized.includes('haiku')) return PRICES['claude-haiku-4-5']!;
   if (normalized.includes('sonnet')) return PRICES['claude-sonnet-4-6']!;
   if (normalized.includes('gpt-5-codex')) return PRICES['gpt-5-codex']!;

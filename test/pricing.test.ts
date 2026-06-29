@@ -4,9 +4,10 @@ import { estimateUsd } from '../src/pricing.js';
 
 test('Opus 4.7 typical message', () => {
   const v = estimateUsd({ model: 'claude-opus-4-7', input: 10, output: 500, cacheRead: 5000, cacheWrite: 1000 });
-  // (10*15 + 500*75 + 5000*1.5 + 1000*18.75) / 1e6
-  // = (150 + 37500 + 7500 + 18750) / 1e6 = 63900 / 1e6 = 0.0639
-  assert.equal(v, 0.0639);
+  // Opus 4.6+ pricing: $5/$25 input/output, cacheRead 0.5, cacheWrite5m 6.25.
+  // (10*5 + 500*25 + 5000*0.5 + 1000*6.25) / 1e6
+  // = (50 + 12500 + 2500 + 6250) / 1e6 = 21300 / 1e6 = 0.0213
+  assert.equal(v, 0.0213);
 });
 
 test('Sonnet 4.6 cache-heavy', () => {

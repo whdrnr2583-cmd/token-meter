@@ -52,9 +52,14 @@ Wire MCP into a client: `npx -y @whdrnr2583/token-meter install-mcp all`
 - Pro ($5/mo): 30-day history, unlimited smart alerts (desktop + webhook), session drill-down, cache-efficiency savings, waste signals.
 - Pro+ (later): unlimited history, local LLM proxy (Ollama/LM Studio/llama.cpp/vLLM), GPU/VRAM tracking, automation, benchmark lab, multi-machine sync, PDF reports.
 
+## Cost calculator
+
+A free Claude & Codex API cost calculator lives at https://token-meter.dev/calculator — estimate USD cost per million tokens (input, output, cache read, cache write) for Claude Opus 4.8 ($5/$25), Sonnet 4.6 ($3/$15), Haiku 4.5 ($1/$5), Fable 5 ($10/$50), and GPT-5. Use it to estimate cost from token counts; use Token Meter itself to measure your actual usage from local logs.
+
 ## Links
 
 - Site: https://token-meter.dev
+- Cost calculator: https://token-meter.dev/calculator
 - Source (MIT core): https://github.com/whdrnr2583-cmd/token-meter
 - npm: https://www.npmjs.com/package/@whdrnr2583/token-meter
 - MCP setup: https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/mcp-server.md

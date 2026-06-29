@@ -25,9 +25,9 @@ test('parser keeps first occurrence of duplicated request_id', () => {
 test('parser computes per-row USD using stored pricing', () => {
   const { tokens } = parseJsonlFile(FIXTURE, 'fixture');
   const reqA = tokens.find((t) => t.request_id === 'req_A');
-  // Opus 4.7: input=10 output=500 cacheRead=5000 cacheWrite=1000
-  // (10*15 + 500*75 + 5000*1.5 + 1000*18.75) / 1e6 = 0.0639
-  assert.equal(reqA?.usd_estimate, 0.0639);
+  // Opus 4.7 ($5/$25, cacheRead 0.5, cacheWrite5m 6.25): input=10 output=500 cacheRead=5000 cacheWrite=1000
+  // (10*5 + 500*25 + 5000*0.5 + 1000*6.25) / 1e6 = 0.0213
+  assert.equal(reqA?.usd_estimate, 0.0213);
 });
 
 test('parser identifies MCP tool calls and computes latency', () => {

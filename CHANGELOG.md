@@ -5,6 +5,20 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.22] — 2026-06-29
+
+### Fixed
+- **Corrected Claude Opus pricing — was overstating Opus cost ~3×.** The pricing
+  table still carried the old Opus 4.0/4.1 rate of $15/$75 per million tokens for
+  Opus 4.6/4.7, but Opus 4.6+ is **$5/$25**. USD-equivalent estimates for Opus
+  models (and the cache-saving figures derived from them) were inflated ~3×; they
+  are now correct. (OSS-maintain bug patch.)
+
+### Added
+- **Claude Opus 4.8 and Fable 5 pricing.** Opus 4.8 ($5/$25) and Fable 5
+  ($10/$50) are now in the pricing table, with the model-family fallback updated
+  so unknown `opus*` IDs resolve to current Opus pricing and `fable*` to Fable 5.
+
 ## [0.1.21] — 2026-06-28
 
 ### Security
