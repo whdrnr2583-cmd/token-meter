@@ -148,10 +148,10 @@ neither verifies the rates against vendor invoices.
 | Tier | Price | What you get |
 |---|---|---|
 | **Free** | $0 | Claude Code + Codex parsing, MCP/tool breakdown, hourly/model/project breakdown, 7-day history, 1 desktop alert |
-| **Pro** | **$5/mo** | Everything in Free + 30-day history, unlimited smart alerts (desktop + webhook), session drill-down, cache efficiency, waste signals |
+| **Pro** | **$5/mo** | Everything in Free, reframed as a monthly spend review: 30-day history (this month vs last), per-session/per-message drill-down to the run that blew the budget, cache-efficiency dollars saved, waste signals (oversized tool responses + cache that didn't pay off), plus unlimited smart alerts (desktop + webhook) |
 | Pro+ | _later_ | Local LLM proxy (Ollama / LM Studio / llama.cpp / vLLM), GPU/VRAM tracking, auto actions |
 
-Pro is live — [Subscribe at token-meter.dev](https://token-meter.dev#pricing).
+Pro is the difference between glancing at last week's number and reviewing where the month's spend leaked. Pro is live — [Subscribe at token-meter.dev](https://token-meter.dev#pricing).
 
 Pro+ ships once Pro sign-ups + community demand confirm the segment.
 
