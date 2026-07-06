@@ -33,3 +33,6 @@ npm키.txt
 *.key
 secrets/
 .npmrc
+
+# Local Claude memory (project SoT, not committed)
+.claude/memory/
