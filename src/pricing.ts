@@ -18,6 +18,9 @@ const PRICES: Record<string, ModelPrice> = {
   'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
+  // Sonnet 5 — introductory pricing through 2026-08-31; becomes $3/$15
+  // (same as claude-sonnet-4-6 below) on 2026-09-01. Bump this row manually then.
+  'claude-sonnet-5': { input: 2.0, output: 10.0, cacheRead: 0.20, cacheWrite5m: 2.50 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
@@ -38,7 +41,7 @@ function resolveModel(model: string): ModelPrice {
   if (normalized.includes('fable')) return PRICES['claude-fable-5']!;
   if (normalized.includes('opus')) return PRICES['claude-opus-4-8']!;
   if (normalized.includes('haiku')) return PRICES['claude-haiku-4-5']!;
-  if (normalized.includes('sonnet')) return PRICES['claude-sonnet-4-6']!;
+  if (normalized.includes('sonnet')) return PRICES['claude-sonnet-5']!;
   if (normalized.includes('gpt-5-codex')) return PRICES['gpt-5-codex']!;
   if (normalized.includes('gpt-5-mini')) return PRICES['gpt-5-mini']!;
   if (normalized.includes('gpt-5')) return PRICES['gpt-5']!;
