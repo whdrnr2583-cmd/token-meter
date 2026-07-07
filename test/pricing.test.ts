@@ -44,3 +44,14 @@ test('GPT-5-Codex matches GPT-5 pricing', () => {
   const b = estimateUsd({ model: 'gpt-5', input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0 });
   assert.equal(a, b);
 });
+
+test('a model ID matching no known family substring still gets non-zero cost (never silently $0)', () => {
+  // e.g. a brand-new model line released after this pricing table was last
+  // updated — must fall through to the final Sonnet-pricing default rather
+  // than throw or price at $0, so new-model rows never look "free" or crash
+  // ingest.
+  const v = estimateUsd({ model: 'claude-nova-9-experimental', input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0 });
+  const sonnet5 = estimateUsd({ model: 'claude-sonnet-4-6', input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0 });
+  assert.ok(v > 0, 'unrecognized model must not price at $0');
+  assert.equal(v, sonnet5, 'unrecognized model falls back to the default Sonnet rate');
+});

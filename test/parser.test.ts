@@ -15,11 +15,13 @@ test('parser dedupes multiple JSONL entries with same request_id (D-027 regressi
   assert.deepEqual(new Set(requestIds), new Set(['req_A', 'req_B', 'req_C']));
 });
 
-test('parser keeps first occurrence of duplicated request_id', () => {
+test('parser keeps latest (final) occurrence of duplicated request_id', () => {
   const { tokens } = parseJsonlFile(FIXTURE, 'fixture');
   const reqA = tokens.find((t) => t.request_id === 'req_A');
-  // First req_A entry was at 10:00:01
-  assert.equal(reqA?.ts, Date.parse('2026-05-13T10:00:01.000Z'));
+  // Fixture's 3 req_A entries carry identical usage, so this only pins the
+  // last-write-wins contract for `ts` — see the growth fixture below for the
+  // case where the usage itself differs across duplicates.
+  assert.equal(reqA?.ts, Date.parse('2026-05-13T10:00:03.000Z'));
 });
 
 test('parser computes per-row USD using stored pricing', () => {

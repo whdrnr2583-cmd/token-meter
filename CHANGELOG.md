@@ -5,6 +5,50 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.23] — unreleased
+
+### Fixed
+- **Sub-agent (Task/Agent) JSONL usage was undercounted by ~98% on real
+  logs.** Claude Code splits one API turn into several assistant JSONL
+  entries that share a `request_id` (one for the `thinking` block, one for
+  `text`, one for `tool_use`). In the interactive CLI's own session files
+  every split entry already carries the identical *final* usage, so billing
+  whichever one arrived first was safe. Sub-agent files under
+  `<session>/subagents/agent-<id>.jsonl` instead stream usage
+  *incrementally* per block — `output_tokens` grows with each later entry
+  (e.g. 2 → 2 → 772 in captured data) while model/input/cache tokens stay
+  fixed, and only the **last** entry for a `request_id` carries the
+  completed total. The parser billed the first entry, undercounting
+  sub-agent output tokens by ~98% (measured: 40,868 vs. 2,420,932 output
+  tokens across 459 sub-agent files on the dogfood machine, a ~59x gap
+  affecting 4,424 of the multi-entry request groups found). `src/parser.ts`
+  now keeps one slot per `request_id` and overwrites it on every sighting,
+  so the last write wins — main-session files are unaffected (their
+  duplicates are already identical, so last-vs-first makes no difference).
+  Directly affects `subagent_costs` (MCP tool + CLI `stats`) accuracy.
+- **CHANGELOG entry for the 2026-07-06 Sonnet 5 pricing fix** (commit
+  `90ad0fa`, shipped without one): Sonnet 5 was falling through the
+  `sonnet` substring fallback to `claude-sonnet-4-6` rates ($3/$15) — the
+  post-2026-09-01 standard price — instead of its current introductory rate
+  ($2/$10, through 2026-08-31), overstating Sonnet 5 cost ~50%. Added an
+  explicit `claude-sonnet-5` pricing row and pointed the family fallback at
+  it.
+
+### Site
+- **`/calculator` was missing a Sonnet 5 option entirely** — the model this
+  project itself now runs on couldn't be selected. Added the
+  `claude-sonnet-5` row (with an introductory-pricing-through-2026-08-31
+  note) to the calculator's pricing table and model picker.
+
+### Notes
+- Existing `agent_id`-tagged rows already sitting in a user's local DB from
+  *before* this fix are not retroactively corrected by a plain `ingest`
+  (the DB's `(source, request_id)` unique index makes re-parses `INSERT OR
+  IGNORE`, not upsert — matches the D-027 dedup design). A user who wants
+  historical sub-agent totals corrected needs a delete-then-reingest of
+  just their sub-agent-file rows, not just `ingest --force`; not shipped as
+  an automated migration in this release — flag if this comes up.
+
 ## [0.1.22] — 2026-06-29
 
 ### Fixed

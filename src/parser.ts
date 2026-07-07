@@ -52,10 +52,20 @@ export function parseJsonlFile(
   const tools: ToolEvent[] = [];
 
   // Dedup: Claude Code splits a single API response into multiple assistant
-  // events (e.g. one for the `thinking` block, one for the `text` block) that
-  // all carry the same request_id and the same final usage. Bill once per
-  // request_id within a file (global dedup happens at DB unique index too).
-  const seenRequestIds = new Set<string>();
+  // events (e.g. one for the `thinking` block, one for the `text` block, one
+  // for `tool_use`) that all share the same request_id. In the interactive
+  // CLI's own session files every split entry already carries the identical
+  // *final* usage (backfilled), so which one gets billed doesn't matter.
+  // Sub-agent (Task/Agent) JSONL files under <session>/subagents/ instead
+  // stream usage incrementally per content block: model/input/cache tokens
+  // stay fixed across the split but output_tokens grows with each later
+  // entry, and only the LAST entry for a request_id carries the completed
+  // total (verified against real subagent logs — billing the first entry
+  // undercounts output tokens by >98% on sub-agent-heavy sessions). Keep one
+  // slot per request_id and overwrite it on every sighting so the last
+  // write wins for both files types; entries with no request_id (rare) bill
+  // immediately since there is nothing to dedup against.
+  const requestIdIndex = new Map<string, number>();
 
   // For latency: tool_use timestamp keyed by id.
   const toolUseTimestamps = new Map<string, { ts: number; name: string }>();
@@ -76,22 +86,20 @@ export function parseJsonlFile(
     if (entry.type === 'assistant' && entry.message) {
       const m = entry.message;
       const requestId = entry.requestId ?? null;
-      const alreadyBilled = requestId !== null && seenRequestIds.has(requestId);
-      if (m.usage && m.model && !alreadyBilled) {
+      if (m.usage && m.model) {
         const input = m.usage.input_tokens ?? 0;
         const output = m.usage.output_tokens ?? 0;
         const cacheRead = m.usage.cache_read_input_tokens ?? 0;
         const cacheWrite = m.usage.cache_creation_input_tokens ?? 0;
         if (input + output + cacheRead + cacheWrite > 0) {
-          if (requestId) seenRequestIds.add(requestId);
-          tokens.push({
+          const event: TokenEvent = {
             ts,
             source: 'claude-code',
             source_kind: 'cloud',
             model: m.model,
             project: projectName,
             session_id: session,
-            request_id: entry.requestId ?? null,
+            request_id: requestId,
             input_tokens: input,
             output_tokens: output,
             cache_read_tokens: cacheRead,
@@ -106,7 +114,18 @@ export function parseJsonlFile(
               cacheWrite,
             }),
             agent_id: agentId,
-          });
+          };
+          if (requestId) {
+            const existingIndex = requestIdIndex.get(requestId);
+            if (existingIndex === undefined) {
+              requestIdIndex.set(requestId, tokens.length);
+              tokens.push(event);
+            } else {
+              tokens[existingIndex] = event;
+            }
+          } else {
+            tokens.push(event);
+          }
         }
       }
       if (Array.isArray(m.content)) {
