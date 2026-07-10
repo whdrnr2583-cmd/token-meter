@@ -5,6 +5,26 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24] — unreleased
+
+### Added
+- **Sub-agent panel on the dashboard.** New `GET /api/subagents` endpoint
+  (main vs. sub-agent 30-day USD/token split + top-5 priciest sub-agents),
+  reusing the same `subagentCosts()` SQL that already powers the MCP
+  `subagent_costs` tool. Dashboard gets a matching card
+  (`#subagents-section` in `public/index.html`) with 3 number cards + a short
+  top-5 table — no new chart. Free tier, same as the other stats endpoints.
+
+### Changed
+- **`token_events` gains an `ingested_at` column** (nullable TEXT, ISO
+  timestamp), stamped once per `insertTokenEvents()` batch at insert time.
+  Existing rows stay `NULL` forever — they are never backfilled. This
+  distinguishes "when the event happened" (`ts`, from the source JSONL) from
+  "when this DB learned about it" (`ingested_at`), and lets
+  `scripts/quality-audit.cjs`'s pricing-reproducibility check (#3) hard-fail
+  on rows we know were priced by the pricing.ts currently on disk, instead of
+  only warning across rows that may carry a frozen historical price.
+
 ## [0.1.23] — 2026-07-10
 
 ### Fixed

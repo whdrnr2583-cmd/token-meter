@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { migrate, openDb } from './db.js';
 import { ingestAll } from './ingest.js';
-import { byHour, byMcp, byModel, byProject, daily, overview } from './stats.js';
+import { byHour, byMcp, byModel, byProject, daily, overview, subagentCosts } from './stats.js';
 import { forecastMonthly, getMonthlyBudget, setMonthlyBudget } from './forecast.js';
 import { exportCsv, exportJson } from './export.js';
 import { gatherDigestFacts, renderDigestText, sendWeeklyDigest } from './digest.js';
@@ -310,6 +310,14 @@ export async function startDashboard(): Promise<void> {
       )
       .all(since);
     return { days, rows };
+  });
+
+  // Free tier — main vs sub-agent (Task/Agent) spend split, mirrors the MCP
+  // subagent_costs tool. Top 5 keeps the dashboard card to a short list, not
+  // a scrollable table (per design: numbers + a short list, no new chart).
+  app.get('/api/subagents', async (req) => {
+    const days = daysFromQuery((req.query as Record<string, unknown>).days);
+    return { days, ...subagentCosts(db, days, 5) };
   });
 
   // ---------- Feature 1: Cost forecast + pacing (Pro) ----------

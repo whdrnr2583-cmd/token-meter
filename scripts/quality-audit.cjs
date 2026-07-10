@@ -125,15 +125,33 @@ function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
 // pricing.ts rate change (usage history is preserved as-is), so *some*
 // mismatches are expected on any DB that has lived through a price change —
 // this is a visibility check, not a hard gate (see warn() below).
+//
+// v0.1.24 adds `ingested_at` (stamped at INSERT time, not from source data).
+// Rows carrying it were written by *this* running build's ingest path, so
+// they were priced by the pricing.ts on disk right now — a mismatch there is
+// a real bug, not a stale historical snapshot, and is hard-failed. Rows with
+// NULL ingested_at (pre-migration, or pricing.ts changed after they were
+// ingested) fall back to the existing warn-only check.
 const sample = db.prepare(`SELECT * FROM token_events ORDER BY RANDOM() LIMIT 200`).all();
 let mism = 0;
+let mismStamped = 0;
+let stampedCount = 0;
 for (const r of sample) {
   const exp = expectUsd({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_write_tokens });
-  if (!approxEqual(exp, r.usd_estimate, 0.0001)) { mism++; if (mism <= 3) console.log(`    mism ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`); }
+  const ok = approxEqual(exp, r.usd_estimate, 0.0001);
+  if (r.ingested_at != null) {
+    stampedCount++;
+    if (!ok) { mismStamped++; console.log(`    mism (ingested_at=${r.ingested_at}) ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`); }
+  } else if (!ok) {
+    mism++; if (mism <= 3) console.log(`    mism ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`);
+  }
 }
+mismStamped === 0
+  ? pass(`pricing recomputable for ingested_at-stamped rows (${stampedCount} of ${sample.length} sampled)`)
+  : fail('pricing mismatch on ingested_at-stamped rows', `${mismStamped}/${stampedCount} rows — priced by the pricing.ts on disk right now, this is a real bug`);
 mism === 0
-  ? pass(`pricing recomputable (${sample.length} samples)`)
-  : warn('pricing mismatch (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length} rows`);
+  ? pass(`pricing recomputable (unstamped rows, ${sample.length - stampedCount} sampled)`)
+  : warn('pricing mismatch on unstamped rows (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length - stampedCount} rows`);
 
 console.log('\n=== 4. Temporal sanity ===');
 const future = db.prepare(`SELECT COUNT(*) c FROM token_events WHERE ts > ?`).get(Date.now() + 60_000).c;

@@ -236,6 +236,39 @@ async function renderMcp() {
   `;
 }
 
+async function renderSubagents() {
+  const data = await api(`/api/subagents?days=${STATE.days}`);
+  const wrap = $('#subagent-cards');
+  wrap.innerHTML = '';
+  const { main, subagent } = data.split;
+  wrap.append(makeCard('메인 세션', fmtUsd(main.usd), `${main.events.toLocaleString()}건`));
+  wrap.append(makeCard('서브에이전트', fmtUsd(subagent.usd), `${subagent.events.toLocaleString()}건`, true));
+  wrap.append(makeCard('서브에이전트 비중', `${data.subagent_share_pct.toFixed(1)}%`, '전체 USD 대비'));
+
+  const t = $('#table-subagents');
+  if (!data.top.length) {
+    t.innerHTML = '<tbody><tr><td class="muted">서브에이전트 사용 없음</td></tr></tbody>';
+    return;
+  }
+  t.innerHTML = `
+    <thead><tr>
+      <th>agent_id</th><th>모델</th>
+      <th class="num">USD</th><th class="num">출력</th><th class="num">호출</th>
+    </tr></thead>
+    <tbody>
+      ${data.top.map((r) => `
+        <tr>
+          <td>${esc(r.agent_id)}</td>
+          <td class="muted">${esc(r.models)}</td>
+          <td class="num accent">${fmtUsd(r.usd)}</td>
+          <td class="num">${fmtTok(r.output)}</td>
+          <td class="num">${r.events.toLocaleString()}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
 const METRIC_LABEL = {
   daily_usd: '일별 USD',
   weekly_usd: '주별 USD',
@@ -608,6 +641,7 @@ async function refreshAll() {
     renderModels(),
     renderProjects(),
     renderMcp(),
+    renderSubagents(),
     renderSessions(),
     renderRules(),
   ]);

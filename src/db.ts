@@ -37,7 +37,8 @@ export function migrate(db: Database.Database): void {
       tps REAL,
       ttft_ms INTEGER,
       usd_estimate REAL NOT NULL DEFAULT 0,
-      agent_id TEXT
+      agent_id TEXT,
+      ingested_at TEXT
     );
 
     -- One API call = one billing event. request_id is globally unique per source.
@@ -150,6 +151,15 @@ export function migrate(db: Database.Database): void {
   if (!columnExists(db, 'token_events', 'ttft_ms')) {
     db.exec(`ALTER TABLE token_events ADD COLUMN ttft_ms INTEGER`);
   }
+  // Ingest timestamp (v0.1.24): when this row was written to the local DB, as
+  // opposed to `ts` (when the event happened per the source JSONL). Nullable —
+  // rows written before this column existed stay NULL forever, they are never
+  // backfilled. Lets the pricing-reproducibility audit (quality-audit.cjs #3)
+  // hard-check rows we know were priced by the pricing.ts shipped alongside
+  // this column, instead of only warning across the whole table.
+  if (!columnExists(db, 'token_events', 'ingested_at')) {
+    db.exec(`ALTER TABLE token_events ADD COLUMN ingested_at TEXT`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
@@ -163,12 +173,16 @@ function columnExists(db: Database.Database, table: string, column: string): boo
 
 export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): number {
   if (rows.length === 0) return 0;
+  // Stamped once per batch, not per row — "when this ingest run wrote it",
+  // not per-event precision. Only applied to rows actually inserted below;
+  // pre-existing rows a backfill touches keep their original ingested_at.
+  const ingestedAt = new Date().toISOString();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO token_events
       (ts, source, source_kind, model, project, session_id, request_id,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       total_duration_ms, tps, ttft_ms, usd_estimate, agent_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_duration_ms, tps, ttft_ms, usd_estimate, agent_id, ingested_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   // Backfill agent_id onto a row that already existed (INSERT OR IGNORE skipped
   // it). Lets a re-ingest (`ingest --force`) tag historical sub-agent rows
@@ -197,6 +211,7 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         r.ttft_ms ?? null,
         r.usd_estimate,
         r.agent_id ?? null,
+        ingestedAt,
       );
       if (result.changes > 0) inserted++;
       else if (r.agent_id != null && r.request_id != null) {
