@@ -22,10 +22,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   sub-agent output tokens by ~98% (measured: 40,868 vs. 2,420,932 output
   tokens across 459 sub-agent files on the dogfood machine, a ~59x gap
   affecting 4,424 of the multi-entry request groups found). `src/parser.ts`
-  now keeps one slot per `request_id` and overwrites it on every sighting,
-  so the last write wins — main-session files are unaffected (their
-  duplicates are already identical, so last-vs-first makes no difference).
-  Directly affects `subagent_costs` (MCP tool + CLI `stats`) accuracy.
+  now keeps one slot per `request_id` and overwrites it whenever a later
+  sighting carries a larger total token count (ties keep the latest), so the
+  completed total wins even if a sub-agent file's split entries are read out
+  of append order or a trailing entry is partially written — main-session
+  files are unaffected (their duplicates are already identical, so the tie
+  rule bills the latest, matching prior behavior). Directly affects
+  `subagent_costs` (MCP tool + CLI `stats`) accuracy.
 - **CHANGELOG entry for the 2026-07-06 Sonnet 5 pricing fix** (commit
   `90ad0fa`, shipped without one): Sonnet 5 was falling through the
   `sonnet` substring fallback to `claude-sonnet-4-6` rates ($3/$15) — the

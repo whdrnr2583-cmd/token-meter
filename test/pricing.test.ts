@@ -45,6 +45,18 @@ test('GPT-5-Codex matches GPT-5 pricing', () => {
   assert.equal(a, b);
 });
 
+test('a bracketed context-window suffix (e.g. claude-opus-4-8[1m]) prices the same as the bare model', () => {
+  // Long-context model IDs appear in real Claude Code logs with a bracketed
+  // suffix like `[1m]`. resolveModel() strips it; if that strip regressed the
+  // ID would fall through to the default Sonnet rate and misprice Opus turns.
+  const bracketed = estimateUsd({ model: 'claude-opus-4-8[1m]', input: 10, output: 500, cacheRead: 5000, cacheWrite: 1000 });
+  const bare = estimateUsd({ model: 'claude-opus-4-8', input: 10, output: 500, cacheRead: 5000, cacheWrite: 1000 });
+  assert.equal(bracketed, bare);
+  // Sanity: Opus 4.8 is $5/$25, not the Sonnet default — proves the strip
+  // actually resolved to the Opus row rather than the fallback.
+  assert.equal(bracketed, 0.0213);
+});
+
 test('a model ID matching no known family substring still gets non-zero cost (never silently $0)', () => {
   // e.g. a brand-new model line released after this pricing table was last
   // updated — must fall through to the final Sonnet-pricing default rather

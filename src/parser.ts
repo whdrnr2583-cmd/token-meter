@@ -121,7 +121,20 @@ export function parseJsonlFile(
               requestIdIndex.set(requestId, tokens.length);
               tokens.push(event);
             } else {
-              tokens[existingIndex] = event;
+              // Split entries sharing a request_id stream usage incrementally:
+              // model/input/cache stay fixed while output_tokens (and thus the
+              // total) grows toward the completed value on the last entry. Real
+              // logs are append-ordered, so last == largest — but a reordered or
+              // partially-written file must not clobber the completed total with
+              // a smaller earlier entry, so keep whichever sighting has the
+              // largest total. `>=` preserves last-write-wins on exact ties, so
+              // identical main-session duplicates still bill the latest timestamp
+              // (D-027 dedup contract unchanged).
+              const prev = tokens[existingIndex]!;
+              const prevTotal =
+                prev.input_tokens + prev.output_tokens + prev.cache_read_tokens + prev.cache_write_tokens;
+              const curTotal = input + output + cacheRead + cacheWrite;
+              if (curTotal >= prevTotal) tokens[existingIndex] = event;
             }
           } else {
             tokens.push(event);
