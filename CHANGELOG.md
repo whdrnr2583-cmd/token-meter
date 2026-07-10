@@ -5,7 +5,7 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.23] — unreleased
+## [0.1.23] — 2026-07-10
 
 ### Fixed
 - **Sub-agent (Task/Agent) JSONL usage was undercounted by ~98% on real
