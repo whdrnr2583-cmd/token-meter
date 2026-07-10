@@ -74,10 +74,17 @@ nullReq === 0 ? pass('no NULL request_ids (all sources have keys)') : warn('null
 
 console.log('\n=== 3. Pricing reproducibility ===');
 // Re-import pricing.ts via dynamic require isn't trivial in cjs; reproduce inline.
+// Keep this table in sync with src/pricing.ts — test/audit-pricing-sync.test.ts
+// extracts this literal and cross-checks it against src/pricing.ts on every run.
 const PRICES = {
-  'claude-opus-4-7': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  'claude-opus-4-6': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
+  'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
+  'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-6': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
+  'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-opus-4':   { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
+  'claude-sonnet-5': { input: 2.0, output: 10.0, cacheRead: 0.20, cacheWrite5m: 2.50 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4':   { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
@@ -90,11 +97,12 @@ const PRICES = {
   'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite5m: 0 },
 };
 function resolve(m) {
-  const n = m.toLowerCase();
+  const n = m.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[n]) return PRICES[n];
-  if (n.includes('opus')) return PRICES['claude-opus-4-7'];
+  if (n.includes('fable')) return PRICES['claude-fable-5'];
+  if (n.includes('opus')) return PRICES['claude-opus-4-8'];
   if (n.includes('haiku')) return PRICES['claude-haiku-4-5'];
-  if (n.includes('sonnet')) return PRICES['claude-sonnet-4-6'];
+  if (n.includes('sonnet')) return PRICES['claude-sonnet-5'];
   if (n.includes('gpt-5-codex')) return PRICES['gpt-5-codex'];
   if (n.includes('gpt-5-mini')) return PRICES['gpt-5-mini'];
   if (n.includes('gpt-5')) return PRICES['gpt-5'];
@@ -107,13 +115,25 @@ function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
   const c = (input * p.input + output * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite5m) / 1_000_000;
   return Math.round(c * 1_000_000) / 1_000_000;
 }
+// Random sample across all history. Note: neither `ts` (event occurrence
+// time) nor `id` (insertion order) reliably identifies "which pricing.ts
+// was live when this row was priced" on a long-lived DB — force-reingest
+// backfills old session files in scan order, not calendar order, so a
+// recent-by-id row can carry a price frozen months ago and vice versa
+// (verified empirically: id is non-monotonic in ts on this DB). Historical
+// usd_estimate is intentionally never retroactively repriced after a
+// pricing.ts rate change (usage history is preserved as-is), so *some*
+// mismatches are expected on any DB that has lived through a price change —
+// this is a visibility check, not a hard gate (see warn() below).
 const sample = db.prepare(`SELECT * FROM token_events ORDER BY RANDOM() LIMIT 200`).all();
 let mism = 0;
 for (const r of sample) {
   const exp = expectUsd({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_write_tokens });
   if (!approxEqual(exp, r.usd_estimate, 0.0001)) { mism++; if (mism <= 3) console.log(`    mism ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`); }
 }
-mism === 0 ? pass(`pricing recomputable (${sample.length} samples)`) : fail('pricing mismatch', `${mism}/${sample.length} rows`);
+mism === 0
+  ? pass(`pricing recomputable (${sample.length} samples)`)
+  : warn('pricing mismatch (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length} rows`);
 
 console.log('\n=== 4. Temporal sanity ===');
 const future = db.prepare(`SELECT COUNT(*) c FROM token_events WHERE ts > ?`).get(Date.now() + 60_000).c;
