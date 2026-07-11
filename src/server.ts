@@ -92,12 +92,21 @@ function validateRuleFields(
   return null;
 }
 
-function parseDays(q: unknown): number {
+export function parseDays(q: unknown): number {
   if (typeof q === 'string') {
     const n = Number.parseInt(q, 10);
     if (Number.isFinite(n) && n > 0 && n <= 365) return n;
   }
   return 30;
+}
+
+// Parse ?days= and clamp it to the caller's tier in one step. Module-level and
+// exported so tests can exercise the exact validation + entitlement clamp the
+// live routes use, instead of re-implementing a looser handler.
+export function daysFromQuery(q: unknown): number {
+  const requested = parseDays(q);
+  const ent = getEntitlement();
+  return clampDaysToEntitlement(requested, ent.tier);
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -114,13 +123,6 @@ export async function startDashboard(): Promise<void> {
   const app = Fastify({ logger: false });
 
   await app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/' });
-
-  // Helper: parse ?days= and clamp it to the caller's tier in one step.
-  function daysFromQuery(q: unknown): number {
-    const requested = parseDays(q);
-    const ent = getEntitlement();
-    return clampDaysToEntitlement(requested, ent.tier);
-  }
 
   function paywall(feature: string): { error: string; feature: string; message: string } {
     return {

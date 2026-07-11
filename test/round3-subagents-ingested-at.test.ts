@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 
 import { migrate, openDb, insertTokenEvents } from '../src/db.js';
+import { daysFromQuery } from '../src/server.js';
 import { subagentCosts } from '../src/stats.js';
 import type { TokenEvent } from '../src/types.js';
 
@@ -113,17 +114,18 @@ test('insertTokenEvents backfill of agent_id does not touch ingested_at of the e
 
 // ---------- Feature 1: /api/subagents dashboard route ----------
 //
-// Mirrors the exact two-line handler wired in src/server.ts's
-// `app.get('/api/subagents', ...)` against a fresh Fastify instance + an
-// in-memory DB, using `app.inject()` (no port binding, no setInterval —
-// startDashboard() is not exercised here). This is a direct handler-call
-// style test, not an end-to-end server boot test.
+// Mirrors the exact `app.get('/api/subagents', ...)` handler wired in
+// src/server.ts against a fresh Fastify instance + an in-memory DB, using
+// `app.inject()` (no port binding, no setInterval — startDashboard() is not
+// exercised here). Crucially it calls the *same* exported `daysFromQuery()`
+// the live route calls, so parseDays' range/NaN validation and the
+// entitlement history clamp are genuinely exercised — a regression in either
+// now fails here instead of slipping past a looser re-implemented handler.
 
 function buildSubagentsTestApp(db: Database.Database) {
   const app = Fastify({ logger: false });
   app.get('/api/subagents', async (req) => {
-    const q = req.query as Record<string, unknown>;
-    const days = typeof q.days === 'string' ? Number.parseInt(q.days, 10) : 30;
+    const days = daysFromQuery((req.query as Record<string, unknown>).days);
     return { days, ...subagentCosts(db, days, 5) };
   });
   return app;
@@ -165,4 +167,43 @@ test('GET /api/subagents on an empty DB returns zeroed split, no top rows', asyn
   assert.equal(body.split.subagent.usd, 0);
   assert.equal(body.top.length, 0);
   await app.close();
+});
+
+// The route runs ?days= through daysFromQuery → parseDays, which rejects
+// non-numeric / out-of-range values and falls back to 30. Because the handler
+// now shares that exact function, these bad inputs are validated for real.
+test('GET /api/subagents coerces invalid ?days values to the 30-day default', async () => {
+  const db = openDb(':memory:');
+  migrate(db);
+  const app = buildSubagentsTestApp(db);
+  for (const bad of ['abc', '-5', '0', '999']) {
+    const res = await app.inject({ method: 'GET', url: `/api/subagents?days=${bad}` });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().days, 30, `?days=${bad} should fall back to 30`);
+  }
+  await app.close();
+});
+
+// With gating enabled and no license, the caller is Free (7-day history cap),
+// so daysFromQuery clamps a 30-day request down to 7. This exercises the
+// clampDaysToEntitlement path the live route depends on.
+test('GET /api/subagents clamps ?days to the Free-tier history cap when gating is on', async () => {
+  const db = openDb(':memory:');
+  migrate(db);
+  const prevGating = process.env.TOKEN_METER_GATING;
+  const prevLicense = process.env.TOKEN_METER_LICENSE;
+  process.env.TOKEN_METER_GATING = '1';
+  delete process.env.TOKEN_METER_LICENSE;
+  try {
+    const app = buildSubagentsTestApp(db);
+    const res = await app.inject({ method: 'GET', url: '/api/subagents?days=30' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().days, 7, 'Free tier caps history at 7 days');
+    await app.close();
+  } finally {
+    if (prevGating !== undefined) process.env.TOKEN_METER_GATING = prevGating;
+    else delete process.env.TOKEN_METER_GATING;
+    if (prevLicense !== undefined) process.env.TOKEN_METER_LICENSE = prevLicense;
+    else delete process.env.TOKEN_METER_LICENSE;
+  }
 });
