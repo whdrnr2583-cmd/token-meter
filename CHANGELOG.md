@@ -5,6 +5,48 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.25] — 2026-07-11
+
+### Fixed
+- **Sub-agent totals could be frozen at a partial value by the dashboard's
+  30-second re-ingest.** `insertTokenEvents()` used `INSERT OR IGNORE`, so once
+  a row for a `request_id` existed a later re-parse could never update it. When
+  `token-meter serve` polled a sub-agent JSONL file mid-flush (only the
+  `thinking`/`text` blocks on disk, `output_tokens`=2), it persisted that
+  partial total; when the `tool_use` block later landed (e.g. `output_tokens`
+  =772) the completed re-parse was silently skipped, re-introducing the ~98%
+  under-count `fcc2cc0` fixed — this time *across* ingest runs rather than
+  within one file. The insert now upserts on the `(source, request_id)` index,
+  overwriting the stored row only when the re-parsed total is strictly larger
+  (`ON CONFLICT ... DO UPDATE ... WHERE excluded.total > stored.total`), so a
+  completed value wins on the next poll while a smaller/truncated read can never
+  clobber it. Equal-total re-ingests stay a no-op (D-027 dedup + historical
+  price snapshots preserved), and a plain `ingest --force` now repairs any rows
+  a prior build had frozen. Regression: `test/db-reingest-growth.test.ts`.
+
+### Changed
+- **`scripts/quality-audit.cjs` no longer false-FAILs across a scheduled
+  in-place rate change.** The pricing-reproducibility check hard-fails
+  `ingested_at`-stamped rows whose stored `usd_estimate` no longer matches the
+  `pricing.ts` on disk. For a model whose rate changes in place on a known date
+  (claude-sonnet-5: intro $2/$10 → standard $3/$15 on 2026-09-01), a row stamped
+  before that date was correctly priced at the time and would false-FAIL after
+  9/1. Such pre-change stamped rows are now downgraded to a warning; mismatches
+  on any other model, or on a row stamped on/after the change date, still
+  hard-fail.
+
+### Added
+- **Regression test for `infra/site/calculator.html`'s pricing mirror**
+  (`test/calculator-pricing-sync.test.ts`). The public calculator carries a
+  third hand-copied price table; it now cross-checks every rate against
+  `src/pricing.ts` and asserts the current-flagship rows are present — the same
+  drift guard `quality-audit.cjs`'s mirror already has (the sonnet-5 row went
+  missing once, in 57c11d5).
+- **`/api/subagents` route test now exercises the real handler logic.**
+  `daysFromQuery()` is exported from `src/server.ts` and called by the test, so
+  `parseDays` range/NaN validation and the Free-tier history clamp are genuinely
+  covered instead of re-implemented in a looser test-only handler.
+
 ## [0.1.24] — 2026-07-11
 
 ### Added
