@@ -174,20 +174,58 @@ function columnExists(db: Database.Database, table: string, column: string): boo
 export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): number {
   if (rows.length === 0) return 0;
   // Stamped once per batch, not per row — "when this ingest run wrote it",
-  // not per-event precision. Only applied to rows actually inserted below;
-  // pre-existing rows a backfill touches keep their original ingested_at.
+  // not per-event precision. Applied to freshly-inserted rows AND to rows whose
+  // total this run grew (the ON CONFLICT branch below); a re-ingest that only
+  // backfills agent_id leaves the stored ingested_at untouched.
   const ingestedAt = new Date().toISOString();
+  // The `INSERT OR IGNORE` prefix covers the (session_id, ts, model) fallback
+  // index used by rows with a NULL request_id — those have nothing to reconcile
+  // and are still counted once. The explicit ON CONFLICT upsert covers the
+  // (source, request_id) index: split assistant entries sharing one request_id
+  // stream usage incrementally (sub-agent files grow output_tokens across the
+  // thinking/text/tool_use split), and the dashboard re-ingests every 30s — so
+  // an earlier poll can persist a *partial* total before the source file has
+  // finished flushing. A plain INSERT OR IGNORE would then freeze that partial
+  // value forever (the completed re-parse is silently skipped, undercounting
+  // sub-agent spend by up to ~98%). Overwrite the stored row only when the
+  // re-parsed total is strictly larger, so the completed value wins on the next
+  // poll while a smaller earlier/truncated read can never clobber it. `>` (not
+  // `>=`) makes an equal-total re-ingest a no-op, preserving the historical
+  // usd_estimate snapshot (D-027 dedup contract + quality-audit #3).
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO token_events
       (ts, source, source_kind, model, project, session_id, request_id,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
        total_duration_ms, tps, ttft_ms, usd_estimate, agent_id, ingested_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source, request_id) WHERE request_id IS NOT NULL
+    DO UPDATE SET
+      ts = excluded.ts,
+      source_kind = excluded.source_kind,
+      model = excluded.model,
+      project = excluded.project,
+      session_id = excluded.session_id,
+      input_tokens = excluded.input_tokens,
+      output_tokens = excluded.output_tokens,
+      cache_read_tokens = excluded.cache_read_tokens,
+      cache_write_tokens = excluded.cache_write_tokens,
+      total_duration_ms = excluded.total_duration_ms,
+      tps = excluded.tps,
+      ttft_ms = excluded.ttft_ms,
+      usd_estimate = excluded.usd_estimate,
+      agent_id = COALESCE(excluded.agent_id, token_events.agent_id),
+      ingested_at = excluded.ingested_at
+    WHERE
+      excluded.input_tokens + excluded.output_tokens
+        + excluded.cache_read_tokens + excluded.cache_write_tokens
+      > token_events.input_tokens + token_events.output_tokens
+        + token_events.cache_read_tokens + token_events.cache_write_tokens
   `);
-  // Backfill agent_id onto a row that already existed (INSERT OR IGNORE skipped
-  // it). Lets a re-ingest (`ingest --force`) tag historical sub-agent rows
-  // that were stored before the agent_id column existed. Only fills when the
-  // stored value is NULL, so a later main-session pass never clobbers a tag.
+  // Backfill agent_id onto a row that already existed and whose total did NOT
+  // grow (so the upsert above was a no-op). Lets a re-ingest (`ingest --force`)
+  // tag historical sub-agent rows that were stored before the agent_id column
+  // existed. Only fills when the stored value is NULL, so a later main-session
+  // pass never clobbers a tag.
   const backfill = db.prepare(
     `UPDATE token_events SET agent_id = ? WHERE source = ? AND request_id = ? AND agent_id IS NULL`,
   );
@@ -213,6 +251,8 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         r.agent_id ?? null,
         ingestedAt,
       );
+      // changes > 0 = a fresh insert or a larger-total update (both re-stamp
+      // ingested_at and, for updates, already set agent_id via COALESCE above).
       if (result.changes > 0) inserted++;
       else if (r.agent_id != null && r.request_id != null) {
         backfill.run(r.agent_id, r.source, r.request_id);
