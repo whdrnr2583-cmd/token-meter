@@ -132,16 +132,40 @@ function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
 // a real bug, not a stale historical snapshot, and is hard-failed. Rows with
 // NULL ingested_at (pre-migration, or pricing.ts changed after they were
 // ingested) fall back to the existing warn-only check.
+// Some pricing.ts rows change rate *in place* on a known future date (same
+// model key, new numbers) — e.g. claude-sonnet-5 is introductory $2/$10 through
+// 2026-08-31 and becomes $3/$15 on 2026-09-01. A row stamped before that date
+// was priced by the then-current pricing.ts; once the row is bumped, recompute
+// against today's table naturally diverges from the (correct-at-the-time)
+// stored usd_estimate. That is an expected historical snapshot across a
+// scheduled rate change, NOT a pricing bug, so such a row is downgraded to a
+// warning even though it is ingested_at-stamped. A stamped mismatch on any
+// other model, or on this model for a row stamped on/after the change date,
+// stays a hard failure. Keep this in sync with the dated comments in
+// src/pricing.ts. Dates are ISO-comparable to the stamped ISO timestamp.
+const SCHEDULED_RATE_CHANGES = {
+  'claude-sonnet-5': '2026-09-01', // intro $2/$10 → standard $3/$15
+};
 const sample = db.prepare(`SELECT * FROM token_events ORDER BY RANDOM() LIMIT 200`).all();
 let mism = 0;
 let mismStamped = 0;
+let mismStampedPreChange = 0;
 let stampedCount = 0;
 for (const r of sample) {
   const exp = expectUsd({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_write_tokens });
   const ok = approxEqual(exp, r.usd_estimate, 0.0001);
   if (r.ingested_at != null) {
     stampedCount++;
-    if (!ok) { mismStamped++; console.log(`    mism (ingested_at=${r.ingested_at}) ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`); }
+    if (!ok) {
+      const changeDate = SCHEDULED_RATE_CHANGES[r.model];
+      if (changeDate && r.ingested_at < changeDate) {
+        // Priced before a scheduled in-place rate change — expected drift.
+        mismStampedPreChange++;
+      } else {
+        mismStamped++;
+        console.log(`    mism (ingested_at=${r.ingested_at}) ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`);
+      }
+    }
   } else if (!ok) {
     mism++; if (mism <= 3) console.log(`    mism ${r.model}: stored=${r.usd_estimate}, recomp=${exp}`);
   }
@@ -149,6 +173,8 @@ for (const r of sample) {
 mismStamped === 0
   ? pass(`pricing recomputable for ingested_at-stamped rows (${stampedCount} of ${sample.length} sampled)`)
   : fail('pricing mismatch on ingested_at-stamped rows', `${mismStamped}/${stampedCount} rows — priced by the pricing.ts on disk right now, this is a real bug`);
+mismStampedPreChange === 0
+  || warn('ingested_at-stamped rows priced before a scheduled rate change', `${mismStampedPreChange} row(s) — expected historical snapshot across an in-place pricing.ts rate bump, not a bug`);
 mism === 0
   ? pass(`pricing recomputable (unstamped rows, ${sample.length - stampedCount} sampled)`)
   : warn('pricing mismatch on unstamped rows (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length - stampedCount} rows`);
