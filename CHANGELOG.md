@@ -5,6 +5,96 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26] — 2026-07-12
+
+### Fixed
+- **Dynamic-workflow sub-agent JSONL files were silently dropped from
+  ingest.** Claude Code's dynamic workflows nest sub-agent transcripts one
+  level deeper than the flat `<sessionId>/subagents/agent-<id>.jsonl`
+  layout — `<sessionId>/subagents/workflows/<workflowId>/agent-<id>.jsonl`
+  instead. The prior scan only read `.jsonl` files directly inside
+  `subagents/` (1-depth), so every workflow sub-agent's usage was never
+  ingested (measured on a real machine: 890 files, ~$820 uningested).
+  `ingestClaudeCode()` now recurses into `subagents/` (mirrors
+  `codex-ingest.ts`'s existing `walkJsonl` recursion + symlink-safety
+  shape), picking up both the flat and nested layouts; `agent_id` is
+  derived from the file's basename either way. Regression:
+  `test/ingest-subagent.test.ts`.
+- **Codex sessions living only on the Windows side of a WSL install were
+  never ingested.** `codexSessionsDir()` only ever returned the WSL
+  home-dir path (`~/.codex/sessions`); a Codex CLI that had only run on
+  Windows left that path ENOENT while every real session sat under
+  `/mnt/c/Users/<profile>/.codex/sessions`, so Codex usage silently
+  ingested $0. New `codexSessionsDirs()` mirrors `claudeProjectsDirs()`'s
+  existing WSL → Windows fallback and scans every discovered directory.
+  `isWsl()`/`scanWindowsUserDirs()` moved out of `ingest.ts` into a new
+  shared `src/platform.ts` so `codex-ingest.ts` can reuse them without a
+  circular import; both are re-exported from `ingest.ts` for back-compat.
+  Regression: `test/codex-ingest.test.ts`.
+- **Codex usage was billed to the session's first-seen model even after a
+  mid-session model switch.** `codex-parser.ts` derived `model` once from
+  `session_meta`/`base_instructions` at the start of the file and used it
+  for every `token_count` event in that session. Codex's `turn_context`
+  entries carry the model actually serving each turn; a session that
+  switched models mid-way (e.g. `gpt-5.3-codex-spark` → `gpt-5.4`) had
+  every turn after the switch billed at the stale model's rate. The parser
+  now tracks `currentModel` from the latest `turn_context.payload.model`
+  seen and re-reads it before pricing/model on every `token_count` event;
+  logs with no `turn_context` at all (older Codex versions) fall back to
+  the session_meta-derived model as before. Added pricing rows for
+  `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.5` (confirmed 2026-07-12 via
+  developers.openai.com/api/docs/pricing) and a placeholder rate for
+  `gpt-5.3-codex-spark` (not yet published — flagged with a TODO), plus a
+  `codex` substring fallback bucket so an unrecognized future
+  `gpt-5.x-codex` variant prices under `gpt-5-codex` instead of the
+  generic `gpt-5` rate. Regression: `test/codex-model-detection.test.ts`.
+
+### Added
+- **Sub-agent labels.** Claude Code writes a sibling `<agentId>.meta.json`
+  (`{ agentType, description }`) next to each sub-agent's
+  `<agentId>.jsonl`. Ingest now parses it opportunistically
+  (malformed/missing meta.json never blocks token/tool ingest) into a new
+  `agent_meta` table, keyed by `agent_id`. `subagentCosts()` LEFT JOINs it
+  so the MCP `subagent_costs` tool's per-agent lines show the human label
+  (e.g. `general-purpose`) instead of the raw hash, falling back to
+  `agent_id` when no meta.json was found.
+- **Codex tool-call events.** Codex JSONL logs `function_call`/
+  `custom_tool_call` entries paired with a later `function_call_output`/
+  `custom_tool_call_output` by `call_id` — previously ignored entirely
+  (Codex sessions only ever produced `token_events`, never `tool_events`).
+  `codex-parser.ts` now pairs them into `ToolEvent`s (response size,
+  estimated tokens, latency from call → output), reusing `parser.ts`'s
+  existing token-estimate heuristic; an unmatched pending call (session
+  ended mid-call) is simply never flushed, not guessed.
+  `CodexIngestSummary` gains a `tool_rows_inserted` count alongside
+  `token_rows_inserted`. Regression: `test/codex-tool-events.test.ts`.
+- **`tool_events.file_ext` column** — the lowercased file extension (no
+  dot) extracted from a `tool_use` call's `file_path`/`path`/
+  `notebook_path` argument at parse time. Only the extension is ever
+  stored, never the full path or any other input field (command text etc.
+  may be sensitive). Additive/nullable column + index.
+
+### Changed
+- **REPEATED_BINARY trim-suggestion now matches real file extensions
+  instead of guessing from the tool name.** Previously reframed (0.1.x) as
+  a "high-frequency read" heuristic because `tool_events` had no path/args
+  column to detect binary extensions from. With `file_ext` now captured,
+  the detector queries `tool_events.file_ext IN (png, jpg, ..., pdf,
+  zip, ...)` directly and can fire on any tool name, not just ones with
+  "read" in it. Calls with no captured `file_ext` (rows ingested before
+  this column existed, or tool_use calls with no path-like argument) fall
+  back to the pre-existing high-frequency-read heuristic, so no coverage
+  is lost.
+
+### Notes
+- **A plain `ingest --force` after upgrading to this version will report a
+  much larger `files_scanned` than before, for both Claude Code and
+  Codex.** This is expected — the recursive `subagents/` scan and the
+  multi-directory Codex scan (both under Fixed above) now discover files
+  the previous ingest silently skipped. It is not a bug or a sign of
+  duplicate/corrupted data; the added rows are the previously-missing
+  usage.
+
 ## [0.1.25] — 2026-07-11
 
 ### Fixed

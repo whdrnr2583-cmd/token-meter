@@ -11,9 +11,27 @@ function parseMcpServer(toolName: string): string | null {
   return match[1] ?? null;
 }
 
-function estimateTokensFromText(s: string): number {
+// Exported so codex-parser.ts can reuse the same heuristic for its
+// function_call/custom_tool_call ↔ *_output tool event pairing.
+export function estimateTokensFromText(s: string): number {
   // ~3.5 chars per token Anthropic heuristic; rough only.
   return Math.ceil(s.length / 3.5);
+}
+
+const FILE_EXT_RE = /\.([a-zA-Z0-9]+)$/;
+
+// Extracts only the lowercased file extension from a tool_use call's
+// file_path/path/notebook_path argument — never the full path or any other
+// input field (command text etc. may be sensitive and must never be stored).
+function extractFileExt(input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null;
+  for (const key of ['file_path', 'path', 'notebook_path']) {
+    const v = input[key];
+    if (typeof v !== 'string') continue;
+    const m = FILE_EXT_RE.exec(v);
+    if (m) return m[1]!.toLowerCase();
+  }
+  return null;
 }
 
 function flattenToolResult(content: string | ContentBlock[] | undefined): string {
@@ -68,7 +86,7 @@ export function parseJsonlFile(
   const requestIdIndex = new Map<string, number>();
 
   // For latency: tool_use timestamp keyed by id.
-  const toolUseTimestamps = new Map<string, { ts: number; name: string }>();
+  const toolUseTimestamps = new Map<string, { ts: number; name: string; fileExt: string | null }>();
 
   for (const line of lines) {
     if (!line) continue;
@@ -144,7 +162,7 @@ export function parseJsonlFile(
       if (Array.isArray(m.content)) {
         for (const block of m.content) {
           if (block.type === 'tool_use' && block.id && block.name) {
-            toolUseTimestamps.set(block.id, { ts, name: block.name });
+            toolUseTimestamps.set(block.id, { ts, name: block.name, fileExt: extractFileExt(block.input) });
           }
         }
       }
@@ -170,6 +188,7 @@ export function parseJsonlFile(
           response_tokens_est: estimateTokensFromText(text),
           latency_ms: Math.max(0, ts - paired.ts),
           agent_id: agentId,
+          file_ext: paired.fileExt,
         });
         toolUseTimestamps.delete(block.tool_use_id);
       }

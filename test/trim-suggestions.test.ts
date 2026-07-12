@@ -28,6 +28,7 @@ function seedToolEvents(
     count: number;
     response_tokens?: number;
     latency_ms?: number | null;
+    file_ext?: string | null;
   },
 ): void {
   for (let i = 0; i < opts.count; i++) {
@@ -45,8 +46,8 @@ function seedToolEvents(
     db.prepare(
       `INSERT INTO tool_events
         (ts, source, project, session_id, tool_name, mcp_server,
-         tool_use_id, response_chars, response_tokens_est, latency_ms)
-       VALUES (?, 'claude-code', '/proj', ?, ?, ?, ?, ?, ?, ?)`,
+         tool_use_id, response_chars, response_tokens_est, latency_ms, file_ext)
+       VALUES (?, 'claude-code', '/proj', ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       ts,
       sessionId,
@@ -56,6 +57,7 @@ function seedToolEvents(
       (opts.response_tokens ?? 100) * 4, // chars ≈ 4× tokens
       opts.response_tokens ?? 100,
       opts.latency_ms !== undefined ? opts.latency_ms : null,
+      opts.file_ext ?? null,
     );
   }
 }
@@ -288,6 +290,84 @@ test('repeated_binary: does NOT fire for non-read tools regardless of call count
     const suggestions = computeTrimSuggestions(db, 30);
     const bin = suggestions.filter((s) => s.kind === 'repeated_binary');
     assert.equal(bin.length, 0, 'Bash should not trigger repeated_binary');
+  } finally {
+    cleanup();
+  }
+});
+
+// ── Backlog chain A, item 5: real file_ext-based REPEATED_BINARY ─────────────
+
+test('repeated_binary: fires on tool_events.file_ext match for a non-read-named tool', () => {
+  // A tool whose name gives no "read" hint (so the old heuristic would never
+  // catch it) but whose captured file_ext is a binary/image extension.
+  const { db, cleanup } = freshDb();
+  try {
+    seedToolEvents(db, {
+      tool_name: 'cat_file',
+      count: 10,
+      response_tokens: 500,
+      file_ext: 'png',
+    });
+    const suggestions = computeTrimSuggestions(db, 30);
+    const bin = suggestions.filter((s) => s.kind === 'repeated_binary' && s.tool_name === 'cat_file');
+    assert.ok(bin.length >= 1, 'should fire for 10 calls reading .png files');
+    assert.ok(bin[0].evidence.includes('.png'), 'evidence mentions the matched extension');
+    assert.ok(bin[0].action_text.includes('.png'), 'action_text mentions the matched extension');
+  } finally {
+    cleanup();
+  }
+});
+
+test('repeated_binary: file_ext match does NOT fire below the call threshold', () => {
+  const { db, cleanup } = freshDb();
+  try {
+    seedToolEvents(db, {
+      tool_name: 'cat_file',
+      count: 9,
+      response_tokens: 500,
+      file_ext: 'pdf',
+    });
+    const suggestions = computeTrimSuggestions(db, 30);
+    const bin = suggestions.filter((s) => s.kind === 'repeated_binary' && s.tool_name === 'cat_file');
+    assert.equal(bin.length, 0, 'should not fire for < 10 calls even with a binary file_ext');
+  } finally {
+    cleanup();
+  }
+});
+
+test('repeated_binary: non-binary file_ext does NOT fire', () => {
+  const { db, cleanup } = freshDb();
+  try {
+    seedToolEvents(db, {
+      tool_name: 'cat_file',
+      count: 20,
+      response_tokens: 500,
+      file_ext: 'ts',
+    });
+    const suggestions = computeTrimSuggestions(db, 30);
+    const bin = suggestions.filter((s) => s.kind === 'repeated_binary' && s.tool_name === 'cat_file');
+    assert.equal(bin.length, 0, 'a source-code extension should not trigger the binary detector');
+  } finally {
+    cleanup();
+  }
+});
+
+test('repeated_binary: Read calls with a binary file_ext do not double-count against the fallback', () => {
+  // A "Read"-named tool with a captured binary file_ext must be attributed to
+  // the file_ext detector only — not also counted by the high-frequency-read
+  // fallback (which is scoped to file_ext IS NULL).
+  const { db, cleanup } = freshDb();
+  try {
+    seedToolEvents(db, {
+      tool_name: 'Read',
+      count: 12,
+      response_tokens: 300,
+      file_ext: 'jpg',
+    });
+    const suggestions = computeTrimSuggestions(db, 30);
+    const bin = suggestions.filter((s) => s.kind === 'repeated_binary' && s.tool_name === 'Read');
+    assert.equal(bin.length, 1, 'exactly one repeated_binary suggestion for Read, not one per detector');
+    assert.ok(bin[0].evidence.includes('.jpg'));
   } finally {
     cleanup();
   }

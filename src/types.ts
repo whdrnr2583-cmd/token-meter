@@ -15,6 +15,11 @@ export interface ContentBlock {
   tool_use_id?: string;
   text?: string;
   content?: string | ContentBlock[];
+  // tool_use call arguments. Only the file extension of a path-like field
+  // (file_path/path/notebook_path) is ever extracted from this — the full
+  // input (which may hold command text or other sensitive data) is never
+  // persisted. See parser.ts's tool_use handling.
+  input?: Record<string, unknown>;
 }
 
 export interface ClaudeMessage {
@@ -80,4 +85,8 @@ export interface ToolEvent {
   response_tokens_est: number;
   latency_ms: number | null;
   agent_id?: string | null; // see TokenEvent.agent_id
+  // Lowercased file extension (no dot) from the tool_use call's file_path/
+  // path/notebook_path argument, e.g. 'png', 'pdf'. Never the full path or
+  // any other input field. null when the tool call had no such argument.
+  file_ext?: string | null;
 }

@@ -1,6 +1,6 @@
 import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type Database from 'better-sqlite3';
 import {
   insertTokenEvents,
@@ -8,9 +8,16 @@ import {
   recordIngest,
   getIngestState,
   countTokenEvents,
+  upsertAgentMeta,
 } from './db.js';
 import { parseJsonlFile } from './parser.js';
-import { ingestCodex, codexSessionsDir } from './codex-ingest.js';
+import { ingestCodex, codexSessionsDirs } from './codex-ingest.js';
+import { isWsl, scanWindowsUserDirs } from './platform.js';
+
+// Re-exported for back-compat — isWsl()/scanWindowsUserDirs() moved to
+// platform.ts so codex-ingest.ts can import them too without a circular
+// import (ingest.ts already imports from codex-ingest.js).
+export { isWsl, scanWindowsUserDirs };
 
 export interface IngestSummary {
   files_scanned: number;
@@ -24,6 +31,7 @@ export interface CodexIngestSummary {
   files_scanned: number;
   files_processed: number;
   token_rows_inserted: number;
+  tool_rows_inserted: number;
   duration_ms: number;
 }
 
@@ -37,44 +45,6 @@ export interface FirstRunResult {
   ingested: boolean;
   rowsAfter: number;
   guidance: string;
-}
-
-/**
- * Returns true when the current process is running inside WSL (Windows
- * Subsystem for Linux). Checks /proc/version for the "microsoft" or "WSL"
- * string which is present in all WSL 1 and WSL 2 kernels.
- */
-export function isWsl(): boolean {
-  try {
-    const version = readFileSync('/proc/version', 'utf8');
-    return /microsoft|wsl/i.test(version);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Tool-data directories on the Windows side, for use when running under WSL.
- * Scans every /mnt/c/Users/<profile>/<relPath> and returns the ones that
- * exist. It looks for the data directly rather than guessing the Windows
- * username — USERPROFILE is often unset under WSL, and the first
- * /mnt/c/Users entry can be a sandbox/system account (e.g.
- * "CodexSandboxOffline"), not the real user. Returns [] when off WSL.
- */
-export function scanWindowsUserDirs(relPath: string): string[] {
-  if (!isWsl()) return [];
-  const usersRoot = '/mnt/c/Users';
-  const out: string[] = [];
-  try {
-    for (const e of readdirSync(usersRoot, { withFileTypes: true })) {
-      if (!e.isDirectory()) continue;
-      const candidate = `${usersRoot}/${e.name}/${relPath}`;
-      if (existsSync(candidate)) out.push(candidate);
-    }
-  } catch {
-    /* /mnt/c/Users absent — not a typical WSL-on-Windows setup */
-  }
-  return out;
 }
 
 /**
@@ -110,6 +80,48 @@ function prettyProjectName(dirName: string): string {
       .replace(/\\{2,}/g, '\\');
   }
   return dirName.replace(/-/g, '/');
+}
+
+// Recursively collect .jsonl files under a <sessionId>/subagents/ directory.
+// Mirrors codex-ingest.ts's walkJsonl (same recursion + symlink-safety shape)
+// so nested sub-agent files are found the same way Codex's are. Claude Code
+// nests some sub-agents one level deeper than the flat
+// <sessionId>/subagents/agent-<id>.jsonl layout — dynamic workflows write
+// <sessionId>/subagents/workflows/<workflowId>/agent-<id>.jsonl instead. A
+// 1-depth-only scan silently drops every one of those. Symlinked entries are
+// skipped: dirent.isDirectory()/isFile() already read false for a symlink,
+// but the explicit check keeps the intent visible.
+function walkSubagentJsonl(dir: string, out: string[]): void {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; /* unreadable subdir — skip silently */
+  }
+  for (const e of entries) {
+    if (e.isSymbolicLink()) continue;
+    const p = join(dir, e.name);
+    if (e.isDirectory()) walkSubagentJsonl(p, out);
+    else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(p);
+  }
+}
+
+// Sibling `<agentId>.meta.json` next to a sub-agent's `<agentId>.jsonl` file
+// carries `{ agentType, description }` — Claude Code's own label for what the
+// sub-agent was. Parsed opportunistically alongside ingest and upserted into
+// agent_meta; malformed/missing meta.json never blocks the token/tool ingest.
+function ingestAgentMeta(db: Database.Database, filePath: string, agentId: string): void {
+  const metaPath = filePath.replace(/\.jsonl$/, '.meta.json');
+  if (!existsSync(metaPath)) return;
+  try {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8')) as {
+      agentType?: string;
+      description?: string;
+    };
+    upsertAgentMeta(db, agentId, meta.agentType ?? null, meta.description ?? null);
+  } catch {
+    /* malformed meta.json — skip silently, doesn't block ingest */
+  }
 }
 
 export function ingestClaudeCode(
@@ -155,17 +167,13 @@ export function ingestClaudeCode(
           if (!e.isDirectory()) continue;
           const subDir = join(projectPath, e.name, 'subagents');
           if (!existsSync(subDir)) continue;
-          try {
-            for (const sf of readdirSync(subDir)) {
-              if (sf.endsWith('.jsonl')) {
-                files.push({
-                  path: join(subDir, sf),
-                  agentId: sf.replace(/\.jsonl$/, ''),
-                });
-              }
-            }
-          } catch {
-            /* unreadable subdir — skip silently */
+          const subFiles: string[] = [];
+          walkSubagentJsonl(subDir, subFiles);
+          for (const sf of subFiles) {
+            files.push({
+              path: sf,
+              agentId: basename(sf).replace(/\.jsonl$/, ''),
+            });
           }
         }
       } catch {
@@ -189,6 +197,7 @@ export function ingestClaudeCode(
         const { tokens, tools } = parseJsonlFile(filePath, prettyName, agentId);
         const ti = insertTokenEvents(db, tokens);
         const tl = insertToolEvents(db, tools);
+        if (agentId) ingestAgentMeta(db, filePath, agentId);
         recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
         summary.files_processed++;
         summary.token_rows_inserted += ti;
@@ -214,10 +223,9 @@ function anyLogDirExists(): boolean {
   for (const d of claudeProjectsDirs()) {
     if (existsSync(d)) return true;
   }
-  // codex-ingest only exports the home-dir path (singular) in v0.1.8 src;
-  // also check WSL → Windows fallbacks here to keep the answer correct on WSL.
-  if (existsSync(codexSessionsDir())) return true;
-  for (const d of scanWindowsUserDirs('.codex/sessions')) {
+  // codexSessionsDirs() already covers the WSL → Windows fallback (chain B
+  // item 2), so no separate scanWindowsUserDirs() call is needed here.
+  for (const d of codexSessionsDirs()) {
     if (existsSync(d)) return true;
   }
   return false;

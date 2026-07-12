@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
-import type { TokenEvent } from './types.js';
+import type { TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
+import { estimateTokensFromText } from './parser.js';
 
 interface CodexLastTokenUsage {
   input_tokens?: number;
@@ -16,9 +17,17 @@ interface CodexEntry {
   payload?: {
     id?: string;
     cwd?: string;
+    // turn_context's own model field — the per-turn source of truth for
+    // which model actually served that turn (see currentModel below).
+    model?: string;
     model_provider?: string;
     base_instructions?: { text?: string };
     type?: string;
+    // function_call / custom_tool_call / *_output fields (all under
+    // type: 'response_item', nested payload.type distinguishes them).
+    call_id?: string;
+    name?: string;
+    output?: string;
     info?: {
       last_token_usage?: CodexLastTokenUsage;
       total_token_usage?: CodexLastTokenUsage;
@@ -40,6 +49,7 @@ function extractModel(instructionText: string): string {
 
 export interface ParseCodexResult {
   tokens: TokenEvent[];
+  tools: ToolEvent[];
 }
 
 export function parseCodexSession(filePath: string): ParseCodexResult {
@@ -50,6 +60,7 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
   let cwd = 'unknown';
   let model = 'gpt-5';
   const tokens: TokenEvent[] = [];
+  const tools: ToolEvent[] = [];
 
   // First pass: read session_meta (always early in file).
   for (const line of lines.slice(0, 5)) {
@@ -70,9 +81,22 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     }
   }
 
-  if (!sessionId) return { tokens };
+  if (!sessionId) return { tokens, tools };
 
-  // Second pass: token_count events. Use last_token_usage as per-turn delta.
+  // Second pass: token_count events (billing) + function_call/custom_tool_call
+  // ↔ *_output pairing (tool events). `currentModel` tracks the model
+  // actually serving the current turn via `turn_context` entries — the
+  // per-turn source of truth, correctly attributing mid-session model
+  // switches (e.g. gpt-5.3-codex-spark → gpt-5.4). Logs with no
+  // turn_context at all (older Codex versions) never update it, so every
+  // token_count event bills under the session_meta-derived `model` fallback
+  // from the first pass above.
+  let currentModel = model;
+  // call_id -> the function_call/custom_tool_call entry awaiting its
+  // *_output pair. An unmatched pending call (session ended mid-call) is
+  // simply never flushed to `tools` — no partial/guessed event.
+  const pendingToolCalls = new Map<string, { ts: number; name: string }>();
+
   for (const line of lines) {
     if (!line) continue;
     let entry: CodexEntry;
@@ -81,6 +105,42 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     } catch {
       continue;
     }
+
+    if (entry.type === 'turn_context') {
+      currentModel = entry.payload?.model ?? currentModel;
+      continue;
+    }
+
+    if (entry.type === 'response_item' && entry.payload) {
+      const p = entry.payload;
+      const entryTs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+      if ((p.type === 'function_call' || p.type === 'custom_tool_call') && p.call_id && p.name) {
+        if (!Number.isNaN(entryTs)) pendingToolCalls.set(p.call_id, { ts: entryTs, name: p.name });
+        continue;
+      }
+      if ((p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && p.call_id) {
+        const pending = pendingToolCalls.get(p.call_id);
+        if (pending) {
+          const text = typeof p.output === 'string' ? p.output : '';
+          tools.push({
+            ts: pending.ts,
+            source: 'codex',
+            project: cwd,
+            session_id: sessionId,
+            tool_name: pending.name,
+            mcp_server: null,
+            tool_use_id: p.call_id,
+            response_chars: text.length,
+            response_tokens_est: estimateTokensFromText(text),
+            latency_ms: Number.isNaN(entryTs) ? null : Math.max(0, entryTs - pending.ts),
+          });
+          pendingToolCalls.delete(p.call_id);
+        }
+        continue;
+      }
+      continue;
+    }
+
     if (entry.type !== 'event_msg') continue;
     if (entry.payload?.type !== 'token_count') continue;
     const info = entry.payload.info;
@@ -106,7 +166,7 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
       ts,
       source: 'codex',
       source_kind: 'cloud',
-      model,
+      model: currentModel,
       project: cwd,
       session_id: sessionId,
       request_id: synthRequestId,
@@ -117,7 +177,7 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
       total_duration_ms: null,
       tps: null,
       usd_estimate: estimateUsd({
-        model,
+        model: currentModel,
         input: freshInput,
         output: totalOutput,
         cacheRead,
@@ -126,5 +186,5 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     });
   }
 
-  return { tokens };
+  return { tokens, tools };
 }

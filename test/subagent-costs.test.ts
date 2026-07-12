@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 
 import { migrate, openDb, insertTokenEvents, insertToolEvents } from '../src/db.js';
+import { ingestClaudeCode } from '../src/ingest.js';
 import { parseJsonlFile } from '../src/parser.js';
 import { subagentCosts } from '../src/stats.js';
 import type { TokenEvent, ToolEvent } from '../src/types.js';
@@ -168,4 +169,91 @@ test('insertTokenEvents backfills agent_id onto a pre-existing untagged row', ()
     .prepare(`SELECT COUNT(*) AS n FROM token_events WHERE request_id = 'dup'`)
     .get() as { n: number };
   assert.equal(count.n, 1, 'still exactly one row');
+});
+
+/**
+ * Backlog chain A, item 4: sub-agent label metadata. Claude Code writes a
+ * sibling `<agentId>.meta.json` (`{ agentType, description }`) next to each
+ * sub-agent's `<agentId>.jsonl`. Ingest should parse it into agent_meta and
+ * subagentCosts()'s `top` rows should carry the label via LEFT JOIN — with a
+ * clean NULL fallback for a sub-agent whose meta.json is missing.
+ */
+test('subagentCosts top rows expose agent_type from meta.json, NULL fallback when absent', () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'tm-subagent-meta-test-'));
+  const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
+  try {
+    const projectsRoot = join(fakeHome, '.claude', 'projects');
+    const projectDir = join(projectsRoot, '-tmp-fake-meta-project');
+    const sessionDir = join(projectDir, 'session-meta');
+    const subagentDir = join(sessionDir, 'subagents');
+    mkdirSync(subagentDir, { recursive: true });
+
+    const LABELED_MODEL = 'test-fixture-meta-labeled-chainA-4';
+    const UNLABELED_MODEL = 'test-fixture-meta-unlabeled-chainA-4';
+
+    // Sub-agent WITH a sibling meta.json.
+    const labeledLine = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-07-12T02:00:00.000Z',
+      requestId: 'req-meta-labeled',
+      message: {
+        id: 'msg_labeled',
+        model: LABELED_MODEL,
+        usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+    });
+    writeFileSync(join(subagentDir, 'agent-labeled.jsonl'), labeledLine + '\n');
+    writeFileSync(
+      join(subagentDir, 'agent-labeled.meta.json'),
+      JSON.stringify({ agentType: 'general-purpose', description: 'test fixture agent' }),
+    );
+
+    // Sub-agent WITHOUT a meta.json — must fall back to NULL, not error.
+    const unlabeledLine = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-07-12T02:05:00.000Z',
+      requestId: 'req-meta-unlabeled',
+      message: {
+        id: 'msg_unlabeled',
+        model: UNLABELED_MODEL,
+        usage: { input_tokens: 5, output_tokens: 8, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+    });
+    writeFileSync(join(subagentDir, 'agent-unlabeled.jsonl'), unlabeledLine + '\n');
+
+    assert.equal(homedir(), fakeHome);
+
+    const db = openDb(':memory:');
+    migrate(db);
+    ingestClaudeCode(db);
+
+    const metaRow = db
+      .prepare(`SELECT agent_type, description FROM agent_meta WHERE agent_id = 'agent-labeled'`)
+      .get() as { agent_type: string; description: string } | undefined;
+    assert.ok(metaRow, 'agent_meta row written for labeled sub-agent');
+    assert.equal(metaRow!.agent_type, 'general-purpose');
+    assert.equal(metaRow!.description, 'test fixture agent');
+
+    const noMetaRow = db
+      .prepare(`SELECT agent_id FROM agent_meta WHERE agent_id = 'agent-unlabeled'`)
+      .get();
+    assert.equal(noMetaRow, undefined, 'no agent_meta row for sub-agent with no meta.json');
+
+    const sa = subagentCosts(db, 3650, 50);
+    const labeled = sa.top.find((r) => r.agent_id === 'agent-labeled');
+    const unlabeled = sa.top.find((r) => r.agent_id === 'agent-unlabeled');
+    assert.ok(labeled, 'labeled sub-agent present in top');
+    assert.ok(unlabeled, 'unlabeled sub-agent present in top');
+    assert.equal(labeled!.agent_type, 'general-purpose', 'agent_type joined from agent_meta');
+    assert.equal(unlabeled!.agent_type, null, 'agent_type NULL fallback when meta.json absent');
+  } finally {
+    if (prevHome !== undefined) process.env.HOME = prevHome;
+    else delete process.env.HOME;
+    if (prevUserProfile !== undefined) process.env.USERPROFILE = prevUserProfile;
+    else delete process.env.USERPROFILE;
+    rmSync(fakeHome, { recursive: true, force: true });
+  }
 });

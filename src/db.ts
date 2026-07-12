@@ -136,6 +136,20 @@ export function migrate(db: Database.Database): void {
     );
   `);
 
+  // Sub-agent label metadata: Claude Code writes a sibling
+  // `<agentId>.meta.json` (`{ agentType, description }`) next to each
+  // sub-agent's `<agentId>.jsonl`. Additive/standalone table, keyed by the
+  // same agent_id stamped on token_events/tool_events — LEFT JOIN to attach
+  // a human label instead of the raw hash. Absent for agents ingested before
+  // this existed or whose meta.json is missing; both fields stay NULL.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_meta (
+      agent_id    TEXT PRIMARY KEY,
+      agent_type  TEXT,
+      description TEXT
+    );
+  `);
+
   // Sub-agent attribution (v0.1.19). `CREATE TABLE IF NOT EXISTS` above already
   // carries agent_id on a fresh DB; this ALTER backfills the column onto a DB
   // created by an earlier version. Additive + nullable — no data is rewritten,
@@ -160,9 +174,18 @@ export function migrate(db: Database.Database): void {
   if (!columnExists(db, 'token_events', 'ingested_at')) {
     db.exec(`ALTER TABLE token_events ADD COLUMN ingested_at TEXT`);
   }
+  // File extension of the path a tool_use call touched (e.g. 'png', 'pdf'),
+  // lowercased, taken from input.file_path/path/notebook_path at parse time.
+  // Additive/nullable — only the extension is stored, never the full path or
+  // command text (sensitive-data guard), so the REPEATED_BINARY trim-suggestion
+  // detector can match on file type without re-parsing JSONL.
+  if (!columnExists(db, 'tool_events', 'file_ext')) {
+    db.exec(`ALTER TABLE tool_events ADD COLUMN file_ext TEXT`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_events_file_ext ON tool_events(file_ext);
   `);
 }
 
@@ -268,8 +291,8 @@ export function insertToolEvents(db: Database.Database, rows: ToolEvent[]): numb
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO tool_events
       (ts, source, project, session_id, tool_name, mcp_server,
-       tool_use_id, response_chars, response_tokens_est, latency_ms, agent_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       tool_use_id, response_chars, response_tokens_est, latency_ms, agent_id, file_ext)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const backfill = db.prepare(
     `UPDATE tool_events SET agent_id = ? WHERE tool_use_id = ? AND agent_id IS NULL`,
@@ -289,6 +312,7 @@ export function insertToolEvents(db: Database.Database, rows: ToolEvent[]): numb
         r.response_tokens_est,
         r.latency_ms,
         r.agent_id ?? null,
+        r.file_ext ?? null,
       );
       if (result.changes > 0) inserted++;
       else if (r.agent_id != null) backfill.run(r.agent_id, r.tool_use_id);
@@ -296,6 +320,28 @@ export function insertToolEvents(db: Database.Database, rows: ToolEvent[]): numb
     return inserted;
   });
   return tx(rows);
+}
+
+/**
+ * Upsert a sub-agent's label metadata parsed from its sibling
+ * `<agentId>.meta.json`. `agentType`/`description` are whatever Claude Code
+ * wrote (often just agentType); either may be null. Re-ingesting the same
+ * agent_id overwrites with the latest read — meta.json doesn't change once
+ * written, so this is effectively insert-once in practice.
+ */
+export function upsertAgentMeta(
+  db: Database.Database,
+  agentId: string,
+  agentType: string | null,
+  description: string | null,
+): void {
+  db.prepare(
+    `INSERT INTO agent_meta (agent_id, agent_type, description)
+     VALUES (?, ?, ?)
+     ON CONFLICT(agent_id) DO UPDATE SET
+       agent_type = excluded.agent_type,
+       description = excluded.description`,
+  ).run(agentId, agentType, description);
 }
 
 export function recordIngest(

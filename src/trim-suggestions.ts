@@ -7,7 +7,9 @@
  *   1. LARGE_RESPONSE  — tool calls whose average response is large (≥5k tokens)
  *      with ≥5 calls in the window. "Consider filtering returned fields."
  *   2. REPEATED_BINARY — tool calls on binary/image file patterns (png/jpg/svg/pdf)
- *      that are called frequently. "Consider an exclude pattern."
+ *      that are called frequently, matched via tool_events.file_ext. Falls back to
+ *      the high-frequency-read heuristic for calls with no captured file_ext.
+ *      "Consider an exclude pattern."
  *   3. HIGH_LATENCY    — tools with high average latency (≥3000ms) and ≥5 calls.
  *      "High latency tool — investigate if output is actually used downstream."
  *
@@ -39,10 +41,23 @@ export interface TrimSuggestion {
   action_text: string;
 }
 
-// Minimum call count to flag a read tool as high-frequency.
-// (tool_events has no file-path/args column, so we cannot detect binary extensions;
-//  the detector is therefore reframed as "high-frequency reads".)
+// Minimum call count to flag a read tool as high-frequency. Used both by the
+// binary-extension detector below and by its high-frequency-read fallback
+// (for calls where tool_events.file_ext is NULL — older rows ingested before
+// file_ext existed, or tool_use calls with no path-like argument to extract
+// an extension from).
 const HIGH_FREQ_READ_THRESHOLD = 10;
+
+// Binary/asset extensions (lowercased, no dot) that the REPEATED_BINARY
+// detector flags when read frequently — matched against tool_events.file_ext,
+// captured at parse time from the tool_use call's file_path/path/
+// notebook_path argument (see parser.ts).
+const BINARY_EXTENSIONS = [
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp',
+  'pdf', 'zip', 'tar', 'gz', '7z', 'rar',
+  'mp3', 'wav', 'mp4', 'mov',
+  'woff', 'woff2', 'ttf', 'eot',
+];
 
 function avgTokenCostPerEvent(db: Database.Database, days: number): number {
   // Rough average: total usd / events, back-scaled to per-token.
@@ -111,13 +126,49 @@ export function computeTrimSuggestions(
     });
   }
 
-  // ── 2. REPEATED_BINARY (reframed: HIGH_FREQ_READ) ────────────────────────
-  // tool_events stores tool_name, mcp_server, response_tokens_est and latency_ms
-  // but does NOT store file paths or call arguments, so we cannot detect binary
-  // file extensions at the DB level.  The detector is therefore reframed as
-  // "high-frequency read tool" — flagging read-named tools that are called very
-  // often and might benefit from filtering (e.g. excluding large/binary assets).
-  // Querying tool_events only — no JOIN with token_events needed.
+  // ── 2a. REPEATED_BINARY — real extension match ───────────────────────────
+  // tool_events.file_ext (captured at parse time from the tool_use call's
+  // file_path/path/notebook_path argument) lets us match actual binary/asset
+  // extensions instead of guessing from the tool name.
+  const extPlaceholders = BINARY_EXTENSIONS.map(() => '?').join(', ');
+  const binaryExtRows = db
+    .prepare(
+      `SELECT tool_name, mcp_server, file_ext,
+              COUNT(*) AS calls,
+              CAST(AVG(response_tokens_est) AS INTEGER) AS avg_tokens
+       FROM tool_events
+       WHERE ts >= ? AND file_ext IN (${extPlaceholders})
+       GROUP BY tool_name, mcp_server, file_ext
+       HAVING COUNT(*) >= ?`,
+    )
+    .all(since, ...BINARY_EXTENSIONS, HIGH_FREQ_READ_THRESHOLD) as {
+    tool_name: string;
+    mcp_server: string | null;
+    file_ext: string;
+    calls: number;
+    avg_tokens: number;
+  }[];
+
+  for (const r of binaryExtRows) {
+    const callsPerWeek = (r.calls / days) * 7;
+    const savingsTok = Math.round(callsPerWeek * r.avg_tokens * 0.5);
+    const label = r.mcp_server ? `[${r.mcp_server}] ${r.tool_name}` : r.tool_name;
+    suggestions.push({
+      kind: 'repeated_binary',
+      tool_name: r.tool_name,
+      mcp_server: r.mcp_server,
+      evidence: `${label} read .${r.file_ext} files ${r.calls} times in ${days}d (avg ${r.avg_tokens.toLocaleString()} tokens/call). Binary/asset files rarely need to be read as text — consider an exclude pattern.`,
+      savings_tokens_per_week: savingsTok,
+      savings_usd_per_week: savingsTok * usdPerToken,
+      action_text: `Add an exclude glob pattern like \`**/*.${r.file_ext}\` to ${label} in your Claude Code settings to avoid reading .${r.file_ext} files.`,
+    });
+  }
+
+  // ── 2b. REPEATED_BINARY fallback — HIGH_FREQ_READ ────────────────────────
+  // Calls with no captured file_ext (older rows ingested before that column
+  // existed, or tool_use calls with no path-like argument) fall back to the
+  // pre-existing heuristic: flag read-named tools called very often, since
+  // they might still be reading large/binary assets we can't confirm.
   const highFreqReadRows = db
     .prepare(
       `SELECT tool_name, mcp_server,
@@ -125,6 +176,7 @@ export function computeTrimSuggestions(
               CAST(AVG(response_tokens_est) AS INTEGER) AS avg_tokens
        FROM tool_events
        WHERE ts >= ?
+         AND file_ext IS NULL
          AND (tool_name = 'Read' OR tool_name = 'read_file'
               OR tool_name LIKE '%read%')
        GROUP BY tool_name, mcp_server

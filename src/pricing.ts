@@ -32,6 +32,16 @@ const PRICES: Record<string, ModelPrice> = {
   'gpt-5-mini': { input: 0.25, output: 2.0, cacheRead: 0.025, cacheWrite5m: 0 },
   'gpt-4o': { input: 2.5, output: 10.0, cacheRead: 1.25, cacheWrite5m: 0 },
   'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite5m: 0 },
+  // Backlog chain B item 3 — confirmed 2026-07-12 via developers.openai.com/api/docs/pricing
+  // (standard tier, cacheRead = 0.1x input matching the gpt-5 family pattern).
+  'gpt-5.3-codex': { input: 1.75, output: 14.0, cacheRead: 0.175, cacheWrite5m: 0 },
+  'gpt-5.4': { input: 2.5, output: 15.0, cacheRead: 0.25, cacheWrite5m: 0 },
+  'gpt-5.5': { input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite5m: 0 },
+  // gpt-5.3-codex-spark: not listed on the official OpenAI pricing page as of
+  // 2026-07-12 (ChatGPT Pro research preview, no public API pricing yet) —
+  // using the gpt-5 base rate as a placeholder rather than inventing a number.
+  // TODO verify once OpenAI publishes API pricing for this model.
+  'gpt-5.3-codex-spark': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
 };
 
 function resolveModel(model: string): ModelPrice {
@@ -44,6 +54,11 @@ function resolveModel(model: string): ModelPrice {
   if (normalized.includes('sonnet')) return PRICES['claude-sonnet-5']!;
   if (normalized.includes('gpt-5-codex')) return PRICES['gpt-5-codex']!;
   if (normalized.includes('gpt-5-mini')) return PRICES['gpt-5-mini']!;
+  // Any other unrecognized Codex model name (e.g. a future gpt-5.x-codex
+  // variant not yet added above) — bucket under gpt-5-codex rather than
+  // falling through to the generic gpt-5 rate below, since Codex-line
+  // pricing has historically diverged from plain gpt-5.
+  if (normalized.includes('codex')) return PRICES['gpt-5-codex']!;
   if (normalized.includes('gpt-5')) return PRICES['gpt-5']!;
   if (normalized.includes('gpt-4o-mini')) return PRICES['gpt-4o-mini']!;
   if (normalized.includes('gpt-4o')) return PRICES['gpt-4o']!;

@@ -473,6 +473,10 @@ export interface SubagentBucket {
 
 export interface SubagentRow {
   agent_id: string;
+  // Human label from the sub-agent's sibling meta.json (agentType), e.g.
+  // "general-purpose" or "workflow-subagent". null when no meta.json was
+  // found at ingest — callers fall back to displaying agent_id.
+  agent_type: string | null;
   models: string; // comma-separated distinct models, e.g. "haiku-4-5,sonnet-4-6"
   usd: number;
   input: number;
@@ -551,7 +555,8 @@ export function subagentCosts(
   const top = db
     .prepare(
       `SELECT
-        agent_id,
+        token_events.agent_id                 AS agent_id,
+        agent_meta.agent_type                 AS agent_type,
         GROUP_CONCAT(DISTINCT model)          AS models,
         COALESCE(SUM(usd_estimate), 0)        AS usd,
         COALESCE(SUM(input_tokens), 0)        AS input,
@@ -562,8 +567,9 @@ export function subagentCosts(
         MIN(ts)                               AS first_ts,
         MAX(ts)                               AS last_ts
        FROM token_events
-       WHERE ts >= ? AND agent_id IS NOT NULL${sc.clause}
-       GROUP BY agent_id
+       LEFT JOIN agent_meta ON agent_meta.agent_id = token_events.agent_id
+       WHERE ts >= ? AND token_events.agent_id IS NOT NULL${sc.clause}
+       GROUP BY token_events.agent_id
        ORDER BY usd DESC
        LIMIT ?`,
     )

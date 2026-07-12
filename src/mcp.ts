@@ -623,8 +623,11 @@ export async function startMcpServer(): Promise<void> {
             .split(',')
             .map(shortModel)
             .join(',');
+          // agent_type comes from the sub-agent's meta.json (e.g. "general-purpose");
+          // falls back to the raw agent_id hash when no meta.json was found.
+          const label = a.agent_type ?? a.agent_id;
           lines.push(
-            `  ${a.agent_id}  ${fmtUsd(a.usd)} · ${a.events}x · ${models} · ` +
+            `  ${label}  ${fmtUsd(a.usd)} · ${a.events}x · ${models} · ` +
               `out ${fmtTok(a.output)} · cache_rd ${fmtTok(a.cache_read)}`,
           );
         }
