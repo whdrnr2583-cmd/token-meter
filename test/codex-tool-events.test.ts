@@ -137,6 +137,48 @@ test('parseCodexSession does not emit a ToolEvent for a function_call with no ma
   }
 });
 
+/**
+ * H5 hardening: Codex sometimes emits a structured (object/array) `output`
+ * instead of a plain string. The old code coerced anything non-string to ''
+ * (`typeof p.output === 'string' ? p.output : ''`), silently zeroing out
+ * response_chars/response_tokens_est for that call. Must JSON.stringify the
+ * structured payload instead so the size reflects its actual content.
+ */
+test('parseCodexSession stringifies a structured (object) tool output instead of downgrading it to empty', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tm-codex-tool-object-output-'));
+  try {
+    const filePath = join(dir, 'rollout-object-output.jsonl');
+    const structuredOutput = { status: 'ok', files: ['a.txt', 'b.txt'], count: 2 };
+    let content = '';
+    content += line({
+      timestamp: '2026-07-12T00:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: '019e-test-tool-object', cwd: 'C:\\fake\\project' },
+    });
+    content += line({
+      timestamp: '2026-07-12T00:00:01.000Z',
+      type: 'response_item',
+      payload: { type: 'function_call', name: 'list_files', call_id: 'call_obj1', arguments: '{}' },
+    });
+    content += line({
+      timestamp: '2026-07-12T00:00:02.000Z',
+      type: 'response_item',
+      payload: { type: 'function_call_output', call_id: 'call_obj1', output: structuredOutput },
+    });
+    writeFileSync(filePath, content);
+
+    const { tools } = parseCodexSession(filePath);
+    assert.equal(tools.length, 1);
+    const t = tools[0]!;
+    const expectedText = JSON.stringify(structuredOutput);
+    assert.equal(t.response_chars, expectedText.length, 'response_chars must reflect the stringified payload, not 0');
+    assert.equal(t.response_tokens_est, estimateTokensFromText(expectedText));
+    assert.ok(t.response_chars > 0, 'a structured output must never downgrade to a 0-length empty string');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('parseCodexSession pairs multiple distinct call_ids independently in one session', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tm-codex-tool-multi-test-'));
   try {

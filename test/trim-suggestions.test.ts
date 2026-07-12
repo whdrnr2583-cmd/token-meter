@@ -373,6 +373,43 @@ test('repeated_binary: Read calls with a binary file_ext do not double-count aga
   }
 });
 
+// ── H6: aggregate REPEATED_BINARY across extensions per (tool_name, mcp_server) ──
+
+test('repeated_binary: multiple binary extensions on the same (tool_name, mcp_server) collapse into ONE suggestion, not one per extension', () => {
+  // Before the fix, a tool reading both .png and .jpg files fired TWO
+  // near-duplicate repeated_binary suggestions (grouped per file_ext),
+  // eating into the final slice(0, 5) top-5 cutoff. Must collapse to one.
+  const { db, cleanup } = freshDb();
+  try {
+    const ts = Date.now();
+    for (const ext of ['png', 'jpg']) {
+      for (let i = 0; i < 10; i++) {
+        const sessionId = `sess-multi-ext-${ext}-${i}`;
+        db.prepare(
+          `INSERT OR IGNORE INTO token_events
+            (ts, source, source_kind, model, project, session_id, request_id,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, usd_estimate)
+           VALUES (?, 'claude-code', 'cloud', 'claude-sonnet-4-5', '/proj', ?, ?, 100, 50, 0, 0, 0.01)`,
+        ).run(ts - i * 1000, sessionId, `req-multi-ext-${ext}-${i}`);
+        db.prepare(
+          `INSERT INTO tool_events
+            (ts, source, project, session_id, tool_name, mcp_server,
+             tool_use_id, response_chars, response_tokens_est, latency_ms, file_ext)
+           VALUES (?, 'claude-code', '/proj', ?, 'cat_file', NULL, ?, 400, 100, NULL, ?)`,
+        ).run(ts - i * 1000, sessionId, `use-multi-ext-${ext}-${i}`, ext);
+      }
+    }
+    const suggestions = computeTrimSuggestions(db, 30);
+    const bin = suggestions.filter((s) => s.kind === 'repeated_binary' && s.tool_name === 'cat_file');
+    assert.equal(bin.length, 1, 'exactly one aggregated suggestion, not one per extension');
+    assert.ok(bin[0].evidence.includes('.jpg') && bin[0].evidence.includes('.png'), 'evidence lists both matched extensions');
+    assert.ok(bin[0].evidence.includes('20 times'), 'call count combines both extensions (10 + 10)');
+    assert.ok(bin[0].action_text.includes('jpg') && bin[0].action_text.includes('png'), 'action_text mentions both extensions');
+  } finally {
+    cleanup();
+  }
+});
+
 test('repeated_binary: time window is respected (old calls outside window ignored)', () => {
   // Verifies that the WHERE ts >= ? filter applies to ALL rows in the detector
   // (the old GLOB/OR precedence bug let some rows bypass the time filter).

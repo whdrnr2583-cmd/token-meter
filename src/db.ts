@@ -194,6 +194,44 @@ function columnExists(db: Database.Database, table: string, column: string): boo
   return cols.some((c) => c.name === column);
 }
 
+// Sanity ceilings for a single billing event, applied just before insert.
+// Derived from a read-only audit of a live usage.db (2026-07-12): the
+// largest real per-event token field (cache_read_tokens, near the 1M-token
+// long-context window) was 985,005 and the priciest single real event was
+// $17.43. These ceilings sit at roughly 50x those observed maxima — generous
+// enough to never clip a legitimate large cache_read burst (even a full
+// 1M-token context re-read stays ~50x under the ceiling), tight enough to
+// stop a corrupt/malformed usage line (e.g. a field that deserializes to a
+// 12-digit number) from silently inflating every downstream total. Clamped
+// values are logged, never silently dropped.
+const EVENT_TOKEN_FIELD_CEILING = 50_000_000; // ~50x the observed 985,005-token max
+const EVENT_USD_CEILING = 1_000; // ~50-60x the observed $17.43 max
+
+// Returns `r` unchanged when every field is within the ceilings above (no
+// allocation on the common path); otherwise returns a clamped copy and logs
+// one warning line naming which fields were clamped.
+function clampEventSanity(r: TokenEvent): TokenEvent {
+  let anomalous = false;
+  let input_tokens = r.input_tokens;
+  let output_tokens = r.output_tokens;
+  let cache_read_tokens = r.cache_read_tokens;
+  let cache_write_tokens = r.cache_write_tokens;
+  let usd_estimate = r.usd_estimate;
+  if (input_tokens > EVENT_TOKEN_FIELD_CEILING) { input_tokens = EVENT_TOKEN_FIELD_CEILING; anomalous = true; }
+  if (output_tokens > EVENT_TOKEN_FIELD_CEILING) { output_tokens = EVENT_TOKEN_FIELD_CEILING; anomalous = true; }
+  if (cache_read_tokens > EVENT_TOKEN_FIELD_CEILING) { cache_read_tokens = EVENT_TOKEN_FIELD_CEILING; anomalous = true; }
+  if (cache_write_tokens > EVENT_TOKEN_FIELD_CEILING) { cache_write_tokens = EVENT_TOKEN_FIELD_CEILING; anomalous = true; }
+  if (usd_estimate > EVENT_USD_CEILING) { usd_estimate = EVENT_USD_CEILING; anomalous = true; }
+  if (!anomalous) return r;
+  console.warn(
+    `[token-meter] clamped anomalous token_event (source=${r.source} session=${r.session_id} model=${r.model} ts=${r.ts}): ` +
+      `input ${r.input_tokens}->${input_tokens}, output ${r.output_tokens}->${output_tokens}, ` +
+      `cacheRead ${r.cache_read_tokens}->${cache_read_tokens}, cacheWrite ${r.cache_write_tokens}->${cache_write_tokens}, ` +
+      `usd ${r.usd_estimate}->${usd_estimate}`,
+  );
+  return { ...r, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, usd_estimate };
+}
+
 export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): number {
   if (rows.length === 0) return 0;
   // Stamped once per batch, not per row — "when this ingest run wrote it",
@@ -254,7 +292,8 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
   );
   const tx = db.transaction((batch: TokenEvent[]) => {
     let inserted = 0;
-    for (const r of batch) {
+    for (const raw of batch) {
+      const r = clampEventSanity(raw);
       const result = stmt.run(
         r.ts,
         r.source,

@@ -82,6 +82,15 @@ function prettyProjectName(dirName: string): string {
   return dirName.replace(/-/g, '/');
 }
 
+// Non-transcript .jsonl files that Claude Code's dynamic workflows write
+// alongside real agent-<id>.jsonl transcripts under subagents/ — control/
+// bookkeeping files, not sub-agent usage logs. Listed by exact basename only:
+// a broad "agent-*" allowlist filter was considered and rejected, since a
+// past sub-agent file layout (see the flat vs. nested history above) didn't
+// always follow that naming and a strict allowlist would silently drop real
+// transcripts again.
+const SUBAGENT_NOISE_BASENAMES = new Set(['journal.jsonl']);
+
 // Recursively collect .jsonl files under a <sessionId>/subagents/ directory.
 // Mirrors codex-ingest.ts's walkJsonl (same recursion + symlink-safety shape)
 // so nested sub-agent files are found the same way Codex's are. Claude Code
@@ -102,7 +111,7 @@ function walkSubagentJsonl(dir: string, out: string[]): void {
     if (e.isSymbolicLink()) continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) walkSubagentJsonl(p, out);
-    else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(p);
+    else if (e.isFile() && e.name.endsWith('.jsonl') && !SUBAGENT_NOISE_BASENAMES.has(e.name)) out.push(p);
   }
 }
 

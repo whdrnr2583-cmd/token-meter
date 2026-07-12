@@ -86,6 +86,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   back to the pre-existing high-frequency-read heuristic, so no coverage
   is lost.
 
+### Hardening (same-day follow-up)
+- **Dated Claude model ids were priced at the wrong (usually cheaper)
+  family-fallback rate.** `resolveModel()` now strips a trailing 8-digit
+  date suffix (`claude-sonnet-4-5-20250929` → `claude-sonnet-4-5`) and
+  retries the exact price key before the family substring fallback —
+  measured live: 87 Sonnet-4.5 rows underpriced by 33%. The
+  `scripts/quality-audit.cjs` and calculator pricing mirrors carry the
+  same logic (regression probes added to `audit-pricing-sync.test.ts`).
+- **Per-event sanity clamps.** Token fields (>50M/field) and
+  `usd_estimate` (>$1,000/event) are clamped at insert with a warning —
+  thresholds sit ~50x above the largest legitimate event observed on a
+  real DB, so a single corrupt JSONL line can no longer dominate every
+  total.
+- **Future timestamps no longer pollute every window.** All N-day stats
+  queries now bound `ts <= now` (matching `forecast.ts`), so a corrupt
+  future-dated row can't appear in the 1/7/30/365-day views forever.
+- Sub-agent scan skips non-transcript `journal.jsonl` files; Codex tool
+  outputs that arrive as structured objects are measured via
+  `JSON.stringify` instead of counting as 0 chars; repeated-binary-read
+  suggestions aggregate per tool instead of one row per file extension.
+
 ### Notes
 - **A plain `ingest --force` after upgrading to this version will report a
   much larger `files_scanned` than before, for both Claude Code and

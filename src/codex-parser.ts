@@ -27,7 +27,9 @@ interface CodexEntry {
     // type: 'response_item', nested payload.type distinguishes them).
     call_id?: string;
     name?: string;
-    output?: string;
+    // Usually a string, but Codex sometimes emits a structured (object/array)
+    // payload for a tool's output — see the JSON.stringify fallback below.
+    output?: string | Record<string, unknown> | unknown[];
     info?: {
       last_token_usage?: CodexLastTokenUsage;
       total_token_usage?: CodexLastTokenUsage;
@@ -121,7 +123,17 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
       if ((p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && p.call_id) {
         const pending = pendingToolCalls.get(p.call_id);
         if (pending) {
-          const text = typeof p.output === 'string' ? p.output : '';
+          // Codex usually emits a plain string here, but sometimes a
+          // structured (object/array) payload instead — stringify it so the
+          // response size (chars + estimated tokens) reflects its actual
+          // content instead of silently downgrading to '' (0 length, 0
+          // tokens — an undercount, not just an approximation).
+          const text =
+            typeof p.output === 'string'
+              ? p.output
+              : p.output != null
+                ? JSON.stringify(p.output)
+                : '';
           tools.push({
             ts: pending.ts,
             source: 'codex',

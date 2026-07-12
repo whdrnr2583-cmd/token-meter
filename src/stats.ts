@@ -141,12 +141,22 @@ function dayWindow(days: number): number {
   return Date.now() - days * 86_400_000;
 }
 
+// Upper bound paired with dayWindow()'s `since` on every N-day-window query
+// below. Without it, a row with a future/corrupt timestamp (bad clock, bad
+// JSONL) satisfies `ts >= since` in every window forever and never ages out
+// of any view. forecast.ts already bounds its own query this way (`ts <
+// Math.min(asOf + 1, monthEnd)`); this mirrors that pattern for stats.ts.
+function nowBound(): number {
+  return Date.now();
+}
+
 export function overview(
   db: Database.Database,
   days: number,
   scope?: ScopeFilter,
 ): OverviewRow {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -160,13 +170,14 @@ export function overview(
         MIN(ts)                               AS first_ts,
         MAX(ts)                               AS last_ts
        FROM token_events
-       WHERE ts >= ?${sc.clause}`,
+       WHERE ts >= ? AND ts <= ?${sc.clause}`,
     )
-    .get(since, ...sc.params) as OverviewRow;
+    .get(since, until, ...sc.params) as OverviewRow;
 }
 
 export function daily(db: Database.Database, days: number, scope?: ScopeFilter): DailyRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -179,11 +190,11 @@ export function daily(db: Database.Database, days: number, scope?: ScopeFilter):
         COALESCE(SUM(usd_estimate), 0)        AS usd,
         COUNT(*)                              AS events
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY day
        ORDER BY day ASC`,
     )
-    .all(since, ...sc.params) as DailyRow[];
+    .all(since, until, ...sc.params) as DailyRow[];
 }
 
 /**
@@ -197,6 +208,7 @@ export function dailyByModel(
   scope?: ScopeFilter,
 ): DailyByModelRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   const rows = db
     .prepare(
@@ -210,11 +222,11 @@ export function dailyByModel(
         COALESCE(SUM(usd_estimate), 0)        AS usd,
         COUNT(*)                              AS events
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY day, model
        ORDER BY day ASC, usd DESC`,
     )
-    .all(since, ...sc.params) as Array<{
+    .all(since, until, ...sc.params) as Array<{
       day: string;
       model: string;
       input: number;
@@ -265,6 +277,7 @@ export function byModel(
   scope?: ScopeFilter,
 ): ModelRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -277,11 +290,11 @@ export function byModel(
         COALESCE(SUM(usd_estimate), 0)        AS usd,
         COUNT(*)                              AS events
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY model
        ORDER BY usd DESC`,
     )
-    .all(since, ...sc.params) as ModelRow[];
+    .all(since, until, ...sc.params) as ModelRow[];
 }
 
 export function byProject(
@@ -291,6 +304,7 @@ export function byProject(
   scope?: ScopeFilter,
 ): ProjectRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -300,12 +314,12 @@ export function byProject(
         COUNT(*)                                                       AS events,
         COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS total_tokens
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY project
        ORDER BY usd DESC
        LIMIT ?`,
     )
-    .all(since, ...sc.params, limit) as ProjectRow[];
+    .all(since, until, ...sc.params, limit) as ProjectRow[];
 }
 
 export function byMcp(
@@ -315,6 +329,7 @@ export function byMcp(
   scope?: ScopeFilter,
 ): McpRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -325,12 +340,12 @@ export function byMcp(
         COALESCE(SUM(response_tokens_est), 0)   AS total_response_tokens,
         COALESCE(AVG(latency_ms), 0)            AS avg_latency_ms
        FROM tool_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY mcp_server, tool_name
        ORDER BY total_response_tokens DESC
        LIMIT ?`,
     )
-    .all(since, ...sc.params, limit) as McpRow[];
+    .all(since, until, ...sc.params, limit) as McpRow[];
 }
 
 export function byHour(
@@ -339,6 +354,7 @@ export function byHour(
   scope?: ScopeFilter,
 ): HourlyRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -348,11 +364,11 @@ export function byHour(
         COALESCE(SUM(usd_estimate), 0)    AS usd,
         COALESCE(SUM(output_tokens), 0)   AS output_tokens
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY hour
        ORDER BY hour ASC`,
     )
-    .all(since, ...sc.params) as HourlyRow[];
+    .all(since, until, ...sc.params) as HourlyRow[];
 }
 
 function round6(n: number): number {
@@ -369,6 +385,7 @@ export function cacheStats(
   scope?: ScopeFilter,
 ): CacheStatsRow {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   const rows = db
     .prepare(
@@ -378,10 +395,10 @@ export function cacheStats(
         COALESCE(SUM(cache_read_tokens), 0)   AS cache_read,
         COALESCE(SUM(cache_write_tokens), 0)  AS cache_write
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY model`,
     )
-    .all(since, ...sc.params) as Array<{
+    .all(since, until, ...sc.params) as Array<{
       model: string;
       input: number;
       cache_read: number;
@@ -425,6 +442,7 @@ export function wasteSignals(
   scope?: ScopeFilter,
 ): WasteSignals {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   const toolRows = db
     .prepare(
@@ -435,11 +453,11 @@ export function wasteSignals(
         CAST(COALESCE(AVG(response_tokens_est), 0) AS INTEGER)  AS avg_tokens,
         COALESCE(MAX(response_tokens_est), 0)                   AS max_tokens
        FROM tool_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY mcp_server, tool_name
        HAVING COUNT(*) >= 3`,
     )
-    .all(since, ...sc.params) as ToolOutlierRow[];
+    .all(since, until, ...sc.params) as ToolOutlierRow[];
   const tool_outliers = toolRows
     .filter((r) => r.max_tokens > 10_000 && r.max_tokens > 5 * r.avg_tokens)
     .sort((a, b) => b.max_tokens - a.max_tokens)
@@ -451,13 +469,13 @@ export function wasteSignals(
         COALESCE(SUM(cache_read_tokens), 0)   AS cache_read,
         COALESCE(SUM(cache_write_tokens), 0)  AS cache_write
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY day
        HAVING SUM(cache_write_tokens) > SUM(cache_read_tokens)
           AND SUM(cache_write_tokens) > 0
        ORDER BY day ASC`,
     )
-    .all(since, ...sc.params) as CacheWasteDayRow[];
+    .all(since, until, ...sc.params) as CacheWasteDayRow[];
   return { tool_outliers, cache_waste_days };
 }
 
@@ -520,6 +538,7 @@ export function subagentCosts(
   scope?: ScopeFilter,
 ): SubagentCosts {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   const bucketRows = db
     .prepare(
@@ -532,10 +551,10 @@ export function subagentCosts(
         COALESCE(SUM(cache_write_tokens), 0)  AS cache_write,
         COUNT(*)                              AS events
        FROM token_events
-       WHERE ts >= ?${sc.clause}
+       WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY bucket`,
     )
-    .all(since, ...sc.params) as Array<SubagentBucket>;
+    .all(since, until, ...sc.params) as Array<SubagentBucket>;
   const empty = (bucket: 'main' | 'subagent'): SubagentBucket => ({
     bucket,
     usd: 0,
@@ -568,12 +587,12 @@ export function subagentCosts(
         MAX(ts)                               AS last_ts
        FROM token_events
        LEFT JOIN agent_meta ON agent_meta.agent_id = token_events.agent_id
-       WHERE ts >= ? AND token_events.agent_id IS NOT NULL${sc.clause}
+       WHERE ts >= ? AND ts <= ? AND token_events.agent_id IS NOT NULL${sc.clause}
        GROUP BY token_events.agent_id
        ORDER BY usd DESC
        LIMIT ?`,
     )
-    .all(since, ...sc.params, limit) as SubagentRow[];
+    .all(since, until, ...sc.params, limit) as SubagentRow[];
 
   // Parent-side invocation cost: the Task/Agent tool calls that *spawned* the
   // sub-agents. Latency here is wall-clock the sub-agent took; the token cost
@@ -587,11 +606,11 @@ export function subagentCosts(
         COALESCE(MAX(latency_ms), 0)            AS max_latency_ms,
         COALESCE(SUM(response_tokens_est), 0)   AS total_response_tokens
        FROM tool_events
-       WHERE ts >= ? AND tool_name IN ('Task', 'Agent')${sc.clause}
+       WHERE ts >= ? AND ts <= ? AND tool_name IN ('Task', 'Agent')${sc.clause}
        GROUP BY tool_name
        ORDER BY calls DESC`,
     )
-    .all(since, ...sc.params) as SubagentInvocationRow[];
+    .all(since, until, ...sc.params) as SubagentInvocationRow[];
 
   return { split, subagent_share_pct, top, invocations };
 }
@@ -616,6 +635,7 @@ export function localPerf(
   scope?: ScopeFilter,
 ): LocalPerfRow[] {
   const since = dayWindow(days);
+  const until = nowBound();
   const sc = scopeClause(scope);
   return db
     .prepare(
@@ -628,9 +648,9 @@ export function localPerf(
         COALESCE(SUM(output_tokens), 0) AS output,
         COALESCE(SUM(input_tokens), 0)  AS input
        FROM token_events
-       WHERE ts >= ? AND source_kind = 'local'${sc.clause}
+       WHERE ts >= ? AND ts <= ? AND source_kind = 'local'${sc.clause}
        GROUP BY source, model
        ORDER BY calls DESC`,
     )
-    .all(since, ...sc.params) as LocalPerfRow[];
+    .all(since, until, ...sc.params) as LocalPerfRow[];
 }

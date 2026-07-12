@@ -167,7 +167,7 @@ token-meter stats 7</pre>
     </style>
 
     <script>
-      // Pricing snapshot — mirrors src/pricing.ts (updated 2026-07-08). USD per 1M tokens.
+      // Pricing snapshot — mirrors src/pricing.ts (updated 2026-07-12). USD per 1M tokens.
       var PRICES = {
         'claude-fable-5':   { in: 10.0, out: 50.0, cr: 1.0,  cw: 12.5, label: 'Claude Fable 5' },
         'claude-opus-4-8':  { in: 5.0,  out: 25.0, cr: 0.5,  cw: 6.25, label: 'Claude Opus 4.8' },
@@ -177,10 +177,14 @@ token-meter stats 7</pre>
         'claude-haiku-4-5': { in: 1.0,  out: 5.0,  cr: 0.1,  cw: 1.25, label: 'Claude Haiku 4.5' },
         'gpt-5':            { in: 1.25, out: 10.0, cr: 0.125,cw: 0,    label: 'GPT-5', est: true },
         'gpt-5-codex':      { in: 1.25, out: 10.0, cr: 0.125,cw: 0,    label: 'GPT-5-codex', est: true },
+        'gpt-5.3-codex':    { in: 1.75, out: 14.0, cr: 0.175,cw: 0,    label: 'GPT-5.3-codex', est: true },
+        'gpt-5.3-codex-spark': { in: 1.25, out: 10.0, cr: 0.125,cw: 0, label: 'GPT-5.3-codex-spark (placeholder rate)', est: true },
+        'gpt-5.4':          { in: 2.5,  out: 15.0, cr: 0.25, cw: 0,    label: 'GPT-5.4', est: true },
+        'gpt-5.5':          { in: 5.0,  out: 30.0, cr: 0.5,  cw: 0,    label: 'GPT-5.5', est: true },
         'gpt-5-mini':       { in: 0.25, out: 2.0,  cr: 0.025,cw: 0,    label: 'GPT-5-mini', est: true },
         'gpt-4o':           { in: 2.5,  out: 10.0, cr: 1.25, cw: 0,    label: 'GPT-4o', est: true }
       };
-      var ORDER = ['claude-fable-5','claude-opus-4-8','claude-opus-4-7','claude-sonnet-5','claude-sonnet-4-6','claude-haiku-4-5','gpt-5','gpt-5-codex','gpt-5-mini','gpt-4o'];
+      var ORDER = ['claude-fable-5','claude-opus-4-8','claude-opus-4-7','claude-sonnet-5','claude-sonnet-4-6','claude-haiku-4-5','gpt-5','gpt-5-codex','gpt-5.3-codex','gpt-5.3-codex-spark','gpt-5.4','gpt-5.5','gpt-5-mini','gpt-4o'];
 
       function usd(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
       function usd4(n) { return '$' + (Math.round(n * 10000) / 10000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }); }

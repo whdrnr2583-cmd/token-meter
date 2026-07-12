@@ -135,7 +135,9 @@ test('ingestClaudeCode recurses into <project>/<sessionId>/subagents/workflows/<
     });
     writeFileSync(join(workflowDir, 'agent-nested.jsonl'), nestedLine + '\n');
     // journal.jsonl sits alongside nested agent files but is not an agent
-    // transcript (no `assistant`/`user` entries) — must not error the scan.
+    // transcript (no `assistant`/`user` entries) — H4 hardening: the scan
+    // must skip it by exact basename (never scanned, never ingested as a
+    // fake "journal" sub-agent), not merely tolerate it without erroring.
     writeFileSync(join(workflowDir, 'journal.jsonl'), JSON.stringify({ type: 'started' }) + '\n');
 
     assert.equal(homedir(), fakeHome);
@@ -144,7 +146,7 @@ test('ingestClaudeCode recurses into <project>/<sessionId>/subagents/workflows/<
     migrate(db);
     const summary = ingestClaudeCode(db);
 
-    assert.ok(summary.files_scanned >= 3, 'expected at least 3 files scanned (flat + nested + journal)');
+    assert.ok(summary.files_scanned >= 2, 'expected at least 2 files scanned (flat + nested, journal.jsonl filtered out)');
 
     const fixtureRows = db
       .prepare(`SELECT model, COUNT(*) AS c FROM token_events WHERE model LIKE 'test-fixture-%-chainA-1' GROUP BY model`)
@@ -160,6 +162,11 @@ test('ingestClaudeCode recurses into <project>/<sessionId>/subagents/workflows/<
       .prepare(`SELECT agent_id FROM token_events WHERE model = ?`)
       .get(NESTED_MODEL) as { agent_id: string | null };
     assert.equal(nestedAgentRow.agent_id, 'agent-nested', 'nested agent_id derived from file basename');
+
+    const journalAgentRow = db
+      .prepare(`SELECT agent_id FROM token_events WHERE agent_id = 'journal'`)
+      .get();
+    assert.equal(journalAgentRow, undefined, 'journal.jsonl must never be ingested as a fake "journal" sub-agent');
   } finally {
     if (prevHome !== undefined) process.env.HOME = prevHome;
     else delete process.env.HOME;

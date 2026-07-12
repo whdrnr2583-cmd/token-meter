@@ -95,16 +95,28 @@ const PRICES = {
   'gpt-5-mini': { input: 0.25, output: 2.0, cacheRead: 0.025, cacheWrite5m: 0 },
   'gpt-4o': { input: 2.5, output: 10.0, cacheRead: 1.25, cacheWrite5m: 0 },
   'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite5m: 0 },
+  // H7 sync (2026-07-12) — new codex model rows added to src/pricing.ts.
+  'gpt-5.3-codex': { input: 1.75, output: 14.0, cacheRead: 0.175, cacheWrite5m: 0 },
+  'gpt-5.4': { input: 2.5, output: 15.0, cacheRead: 0.25, cacheWrite5m: 0 },
+  'gpt-5.5': { input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite5m: 0 },
+  'gpt-5.3-codex-spark': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
 };
 function resolve(m) {
   const n = m.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[n]) return PRICES[n];
+  // Mirror of src/pricing.ts date-suffix strip-and-retry (2026-07-12) —
+  // dated ids like claude-sonnet-4-5-20250929 must hit their exact rate,
+  // not the cheaper family fallback.
+  const stripped = n.replace(/-\d{8}$/, '');
+  if (stripped !== n && PRICES[stripped]) return PRICES[stripped];
   if (n.includes('fable')) return PRICES['claude-fable-5'];
   if (n.includes('opus')) return PRICES['claude-opus-4-8'];
   if (n.includes('haiku')) return PRICES['claude-haiku-4-5'];
   if (n.includes('sonnet')) return PRICES['claude-sonnet-5'];
   if (n.includes('gpt-5-codex')) return PRICES['gpt-5-codex'];
   if (n.includes('gpt-5-mini')) return PRICES['gpt-5-mini'];
+  // Mirror of src/pricing.ts codex-line bucket (2026-07-12).
+  if (n.includes('codex')) return PRICES['gpt-5-codex'];
   if (n.includes('gpt-5')) return PRICES['gpt-5'];
   if (n.includes('gpt-4o-mini')) return PRICES['gpt-4o-mini'];
   if (n.includes('gpt-4o')) return PRICES['gpt-4o'];

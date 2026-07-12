@@ -129,27 +129,37 @@ export function computeTrimSuggestions(
   // ── 2a. REPEATED_BINARY — real extension match ───────────────────────────
   // tool_events.file_ext (captured at parse time from the tool_use call's
   // file_path/path/notebook_path argument) lets us match actual binary/asset
-  // extensions instead of guessing from the tool name.
+  // extensions instead of guessing from the tool name. Grouped by
+  // (tool_name, mcp_server) only — NOT per file_ext — and the matched
+  // extensions concatenated: a tool that reads several binary extensions
+  // (e.g. both .png and .jpg) previously surfaced as one near-duplicate
+  // suggestion PER extension, crowding the final slice(0, 5) with variants
+  // of the same finding instead of leaving room for other distinct ones.
   const extPlaceholders = BINARY_EXTENSIONS.map(() => '?').join(', ');
   const binaryExtRows = db
     .prepare(
-      `SELECT tool_name, mcp_server, file_ext,
+      `SELECT tool_name, mcp_server,
+              GROUP_CONCAT(DISTINCT file_ext) AS extensions,
               COUNT(*) AS calls,
               CAST(AVG(response_tokens_est) AS INTEGER) AS avg_tokens
        FROM tool_events
        WHERE ts >= ? AND file_ext IN (${extPlaceholders})
-       GROUP BY tool_name, mcp_server, file_ext
+       GROUP BY tool_name, mcp_server
        HAVING COUNT(*) >= ?`,
     )
     .all(since, ...BINARY_EXTENSIONS, HIGH_FREQ_READ_THRESHOLD) as {
     tool_name: string;
     mcp_server: string | null;
-    file_ext: string;
+    extensions: string;
     calls: number;
     avg_tokens: number;
   }[];
 
   for (const r of binaryExtRows) {
+    const extList = r.extensions.split(',').sort();
+    const combinedNote = extList.length > 1 ? ' combined' : '';
+    const extLabel = extList.map((e) => `.${e}`).join(', ');
+    const globPattern = extList.length === 1 ? `**/*.${extList[0]}` : `**/*.{${extList.join(',')}}`;
     const callsPerWeek = (r.calls / days) * 7;
     const savingsTok = Math.round(callsPerWeek * r.avg_tokens * 0.5);
     const label = r.mcp_server ? `[${r.mcp_server}] ${r.tool_name}` : r.tool_name;
@@ -157,10 +167,10 @@ export function computeTrimSuggestions(
       kind: 'repeated_binary',
       tool_name: r.tool_name,
       mcp_server: r.mcp_server,
-      evidence: `${label} read .${r.file_ext} files ${r.calls} times in ${days}d (avg ${r.avg_tokens.toLocaleString()} tokens/call). Binary/asset files rarely need to be read as text — consider an exclude pattern.`,
+      evidence: `${label} read ${extLabel} files ${r.calls} times${combinedNote} in ${days}d (avg ${r.avg_tokens.toLocaleString()} tokens/call). Binary/asset files rarely need to be read as text — consider an exclude pattern.`,
       savings_tokens_per_week: savingsTok,
       savings_usd_per_week: savingsTok * usdPerToken,
-      action_text: `Add an exclude glob pattern like \`**/*.${r.file_ext}\` to ${label} in your Claude Code settings to avoid reading .${r.file_ext} files.`,
+      action_text: `Add an exclude glob pattern like \`${globPattern}\` to ${label} in your Claude Code settings to avoid reading ${extLabel} files.`,
     });
   }
 

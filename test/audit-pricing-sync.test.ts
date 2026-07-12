@@ -58,6 +58,14 @@ const synthetic = [
   'claude-fable-9-unreleased',
   'claude-haiku-9-unreleased',
   'gpt-6-unreleased',
+  // date-suffix strip probes (2026-07-12) — dated ids must hit their exact
+  // PRICES rate via the strip-and-retry path, not the family fallback.
+  'claude-sonnet-4-5-20250929',
+  'claude-opus-4-1-20250805',
+  'claude-haiku-4-5-20251001',
+  // codex-line bucket probe — unrecognized codex variant must land on
+  // gpt-5-codex, not generic gpt-5.
+  'gpt-5.9-codex-unreleased',
 ];
 
 test('quality-audit.cjs pricing mirror matches src/pricing.ts for every known + fallback model', () => {

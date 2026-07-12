@@ -47,6 +47,15 @@ const PRICES: Record<string, ModelPrice> = {
 function resolveModel(model: string): ModelPrice {
   const normalized = model.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[normalized]) return PRICES[normalized];
+  // Claude Code JSONL logs often stamp the fully-dated model id (e.g.
+  // claude-sonnet-4-5-20250929) rather than the bare alias in PRICES above.
+  // Strip a trailing 8-digit date suffix and retry the exact-key lookup
+  // before falling through to the coarser family substring fallback below —
+  // without this, claude-sonnet-4-5-20250929 fell through to the cheaper
+  // claude-sonnet-5 family fallback, underpricing every Sonnet 4.5 turn by
+  // ~33% (observed: 87 real rows priced at $5.22 instead of $7.83).
+  const dateStripped = normalized.replace(/-\d{8}$/, '');
+  if (dateStripped !== normalized && PRICES[dateStripped]) return PRICES[dateStripped];
   // family fallbacks
   if (normalized.includes('fable')) return PRICES['claude-fable-5']!;
   if (normalized.includes('opus')) return PRICES['claude-opus-4-8']!;
