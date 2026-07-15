@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Find out which MCP server or tool is burning your Claude Code context. token-meter stats, token-meter audit, and the session_tools MCP tool, explained with real commands, real thresholds, and honest limitations." />
+    <meta name="dateModified" content="2026-07-15" />
+    <meta property="og:title" content="Which MCP server is eating your Claude Code tokens? — Token Meter" />
+    <meta property="og:description" content="token-meter stats, token-meter audit --json, and session_tools: three real ways to see which MCP server/tool is burning your context, with exact commands and honest limitations." />
+    <meta property="og:url" content="https://token-meter.dev/guides/claude-code-mcp-token-usage/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Which MCP server is eating your Claude Code tokens?" />
+    <meta name="twitter:description" content="token-meter stats, token-meter audit --json, and session_tools: three real ways to find the MCP server or tool burning your context." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>Which MCP server is eating your Claude Code tokens? — Token Meter</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/guides/claude-code-mcp-token-usage/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "Which MCP server is eating your Claude Code tokens?",
+      "description": "How to find which MCP server or tool is consuming the most tokens in Claude Code, using token-meter stats, token-meter audit, and the session_tools MCP tool.",
+      "datePublished": "2026-07-15",
+      "dateModified": "2026-07-15",
+      "author": { "@type": "Organization", "name": "Token Meter" },
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "mainEntityOfPage": "https://token-meter.dev/guides/claude-code-mcp-token-usage/",
+      "isPartOf": { "@type": "SoftwareApplication", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Token Meter", "item": "https://token-meter.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Guides", "item": "https://token-meter.dev/guides/" },
+        { "@type": "ListItem", "position": 3, "name": "MCP token usage", "item": "https://token-meter.dev/guides/claude-code-mcp-token-usage/" }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/@whdrnr2583/token-meter" target="_blank" rel="noreferrer">npm</a>
+      </nav>
+    </header>
+
+    <section class="hero guide-hero">
+      <p class="guide-breadcrumb"><a href="/">Token Meter</a> / Guides / MCP token usage</p>
+      <h1>Which MCP server is<br /><span class="accent">eating your tokens?</span></h1>
+      <p class="sub">
+        Claude Code names every MCP tool call <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> and pairs it with a
+        response size. Token Meter already parses that pairing at ingest — no new tracking required.
+        This guide shows the three ways to read it: a one-line table, a ranked audit, and an in-conversation drill-down.
+      </p>
+      <p class="guide-meta">Updated 2026-07-15 · <code>stats</code> and <code>session_tools</code> have shipped since the first release; if <code>token-meter audit</code> isn't recognized, run <code>npm install -g @whdrnr2583/token-meter@latest</code> first.</p>
+    </section>
+
+    <main class="guide-main">
+      <article>
+        <h2 id="problem">Problem</h2>
+        <p>
+          A session that used to feel cheap suddenly burns through context fast, or your weekly
+          <code>token-meter stats</code> total climbs and you can't tell whether it's a model choice, a chatty
+          MCP server (Notion, GitHub, an internal search server, whatever you've registered), or your own
+          built-in tools (<code>Read</code>, <code>Bash</code>, <code>WebSearch</code>) reading something large.
+          You want a name — "it's the Notion server's <code>notion_search</code> tool" — not a vague feeling
+          that "MCP feels heavy."
+        </p>
+
+        <h2 id="cause">Cause</h2>
+        <p>
+          Every <code>tool_use</code> block in a Claude Code JSONL transcript is paired with its
+          <code>tool_result</code> at ingest time. Token Meter estimates the size of that result
+          (<code>response_tokens_est</code>, from <code>response_chars</code> using a ~3.5 chars/token
+          heuristic — see <code>estimateTokensFromText()</code> in <code>src/parser.ts</code>) and derives the
+          MCP server name straight from the tool's own name: any tool matching <code>mcp__&lt;server&gt;__...</code>
+          is tagged with that server (<code>parseMcpServer()</code>, same file); everything else — built-in tools —
+          gets <code>mcp_server: null</code>. Both are stored per call in the local <code>tool_events</code> table.
+        </p>
+        <p>
+          Nothing aggregates that for you by default. A server can be fine on any single call and still dominate
+          your week purely on call volume, and nothing in the Claude Code UI itself breaks usage down by MCP
+          server — you have to ask Token Meter to sum <code>tool_events</code> by <code>(tool_name, mcp_server)</code>.
+        </p>
+
+        <h2 id="command">Command</h2>
+        <p>Three real surfaces, from fastest to most detailed. All read the local SQLite DB — none of this calls out to Anthropic or any MCP server.</p>
+
+        <h3>1. One-line aggregate — <code>token-meter stats</code></h3>
+        <p>
+          Runs <code>byMcp()</code> (<code>src/stats.ts</code>): groups <code>tool_events</code> by
+          <code>(mcp_server, tool_name)</code> and sorts by summed <code>response_tokens_est</code>, descending.
+          It's part of the default <code>stats</code> output, so you already get it for free:
+        </p>
+        <pre class="code">token-meter stats 7</pre>
+        <p class="hint">The number is the lookback window in days. Bare <code>token-meter</code> (no subcommand) runs the same thing with a 30-day default.</p>
+
+        <h3>2. Ranked findings with recommendations — <code>token-meter audit</code></h3>
+        <p>
+          The <code>oversized_tool_response</code> detector (D2 of 6) flags any <code>(tool_name, mcp_server)</code>
+          pair averaging <strong>≥5,000 response tokens/call over ≥5 calls</strong> in the window, ranks it against
+          the audit's other findings, and attaches a concrete recommendation shaped by the tool's apparent role
+          (search/list-shaped tools get "narrow the query" / "lower the result limit" / "paginate"; read/fetch/exec
+          tools get "pre-filter the output" — <code>buildRecommendations()</code> in
+          <code>src/audit/detectors/oversized-tool-response.ts</code>). Real flags, verified against
+          <code>src/cli.ts</code>:
+        </p>
+        <pre class="code">token-meter audit --days 7 --source all --limit 10
+
+# machine-readable, for scripting or dashboards
+token-meter audit --days 7 --source all --limit 10 --json</pre>
+        <p class="hint">
+          <code>--source</code> accepts <code>all</code> | <code>claude</code> | <code>codex</code>.
+          <code>--project &lt;value&gt;</code> narrows to one project path. <code>--days</code> is clamped to your
+          tier's history cap (7d Free, 30d Pro, unlimited Pro+) — a clamp warning prints to stderr if you asked
+          for more than you're entitled to. <code>--limit</code> defaults to 5 in terminal mode, 20 in
+          <code>--json</code> mode.
+        </p>
+
+        <h3>3. Drill into one session, from inside your assistant</h3>
+        <p>
+          The MCP server (<code>token-meter mcp</code>) exposes <code>session_tools</code> — a per-session tool
+          breakdown by response-token share, not just an average across everything. Once registered
+          (<code>claude mcp add token-meter -- npx -y @whdrnr2583/token-meter mcp</code>), ask in plain language:
+        </p>
+        <pre class="code">Use token-meter session_tools for session &lt;session_id&gt;</pre>
+        <p class="hint">
+          Get the <code>session_id</code> from <code>recent_sessions</code> or from a <code>token-meter audit</code>
+          finding's <code>sessionId</code> field. For a broader "what's heavy across the whole week" view without
+          a session id, ask <em>"Use token-meter usage_summary for this week"</em> — its output includes a
+          <code>Heaviest :</code> line naming the top 3 tools by response tokens.
+        </p>
+
+        <h2 id="output">Synthetic output</h2>
+        <p><em>Fabricated example numbers below — not real user data — to show the shape of each command's output.</em></p>
+
+        <p class="guide-label"><code>token-meter stats 7</code></p>
+        <pre class="terminal">=== MCP &amp; tools (7d, top 12) ===
+mcp           tool                                  calls  resp_tok  avg_latency
+notion        mcp__notion__notion_search               41    186.0k  3120ms
+-             Read                                     512    98.0k  140ms
+github        mcp__github__list_pull_requests           9     71.0k  2480ms
+-             Bash                                     203     44.0k  1610ms
+notion        mcp__notion__notion_get_page              22     33.0k  1890ms
+-             WebSearch                                 18     19.0k  2900ms
+internal-kb   mcp__internal-kb__search                  67     17.0k   410ms</pre>
+
+        <p class="guide-label"><code>token-meter audit --days 7</code> (terminal, one finding shown)</p>
+        <pre class="terminal">TOKEN METER AUDIT — LAST 7 DAYS
+
+Sources
+claude-code: available (1842 records analyzed, 100% of window covered)
+codex: unavailable — no data ingested yet
+
+Confirmed usage
+Tokens: 612.4k total (in 210.1k, out 84.6k, cache 317.7k)
+Estimated cost: $9.8420
+
+Efficiency signals
+Findings: 4
+Cost associated: $6.1050
+Confidence: medium
+
+1. [notion] mcp__notion__notion_search responses averaging 4.5k tokens
+Source: claude-code
+Project: /home/you/projects/app
+Session: -
+Tool: mcp__notion__notion_search
+Evidence: [notion] mcp__notion__notion_search returns ~4,536 tokens/call on average (41 calls in 7d window; max 12,800). Configure `fields` or `limit` on [notion] mcp__notion__notion_search to reduce response size (est. 5,220 tokens/week saved).
+Confidence: medium
+Suggested action: Narrow [notion] mcp__notion__notion_search's query/filter scope instead of searching or listing broadly.
+
+[…3 more findings omitted for brevity…]
+
+Warnings
+- [codex] No codex data has ever been ingested. Run `token-meter ingest` after using Codex to populate this source.</pre>
+
+        <p class="guide-label"><code>Use token-meter session_tools for session 1f4f193b-…</code></p>
+        <pre class="terminal">Tools used in session 1f4f193b-… (by response tokens; pct = share of session resp tokens):
+  mcp__notion__notion_search (mcp:notion) calls=12 resp=148.0k (61.2%) avg=4200ms
+  Read (built-in) calls=88 resp=68.0k (28.1%) avg=180ms
+  Bash (built-in) calls=45 resp=26.0k (10.7%) avg=2100ms</pre>
+
+        <h2 id="interpretation">Interpretation</h2>
+        <ul>
+          <li>
+            <strong><code>mcp</code> column / <code>mcp_server</code> field</strong> — the server name parsed
+            straight out of the tool's own name (<code>mcp__notion__notion_search</code> → <code>notion</code>).
+            A dash (<code>-</code>) or <code>built-in</code> means the tool is one of Claude Code's own
+            (Read/Bash/Grep/WebSearch/…), not an MCP server — don't go hunting for an MCP config to trim if
+            that's what's heavy.
+          </li>
+          <li>
+            <strong><code>resp_tok</code> / <code>response_tokens_est</code></strong> — the estimated size of
+            what came <em>back</em> from the tool, summed across every call in the window. This is not a billed
+            line item; it's the payload that then becomes part of your next turn's input context. A tool with
+            few calls but a huge <code>resp_tok</code> total is a "large payload" problem; a tool with a small
+            average but very high <code>calls</code> is a "called too often" problem — the two need different fixes.
+          </li>
+          <li>
+            <strong><code>avg_latency</code></strong> — round-trip time, not token cost. High latency and high
+            token cost often correlate (a slow tool is frequently also a large one) but not always; a fast tool
+            that returns 12k tokens is still worth trimming even if it never shows up as "slow."
+          </li>
+          <li>
+            <strong>Audit finding's cost figure</strong> — for <code>oversized_tool_response</code> specifically,
+            <code>estimatedCostUsd</code> is a <em>projected weekly savings estimate</em>
+            (<code>costLabel: 'cost_associated'</code>) — it assumes ~40% of the average response is reducible,
+            it is not money you already spent. Compare that to an <code>expensive_session</code> finding, whose
+            cost is real, already-incurred spend (<code>costLabel: 'estimated_cost'</code>). The audit ranks both
+            kinds together by dollar figure, so check each finding's <code>type</code>/<code>costLabel</code>
+            before treating the top-ranked item as "the most money burned" — it might instead be "the most money
+            that could be saved going forward."
+          </li>
+          <li>
+            <strong>Confidence</strong> — <code>oversized_tool_response</code> is <code>high</code> confidence
+            only at ≥20 calls in the window; below that it's capped at <code>medium</code>, because a couple of
+            unusually large calls can still swing a small-sample average.
+          </li>
+        </ul>
+
+        <h2 id="actions">Actions</h2>
+        <ol>
+          <li>
+            <strong>Confirm it's not one outlier session first.</strong> Run <code>session_tools</code> on the
+            session named in an <code>expensive_session</code> or <code>oversized_tool_response</code> finding
+            before you touch any MCP config — a server that looks heavy in a 7-day aggregate can turn out to be
+            one bad session (e.g. a runaway loop that called it 40 times) rather than a structurally large tool.
+          </li>
+          <li>
+            <strong>For search/list-shaped MCP tools</strong> (name matches <code>search|grep|find|query|list</code>):
+            narrow the query/filter scope you pass it, use a <code>limit</code>/<code>max_results</code>/<code>top_k</code>
+            argument if the tool exposes one, or paginate across multiple calls instead of asking for everything
+            at once.
+          </li>
+          <li>
+            <strong>For read/fetch/exec-shaped tools</strong> (<code>read|get|fetch|cat|show|view|download|export|bash|exec|run|shell|command</code>):
+            request specific fields instead of the full payload, or pipe through <code>grep</code>/<code>head</code>
+            where the tool supports it.
+          </li>
+          <li>
+            <strong>Either way</strong>, ask whether the tool's output is actually used downstream. If it's
+            being read once and then mostly ignored, a summarization/post-processing step before it enters context
+            is worth more than tuning the call itself.
+          </li>
+          <li>
+            <strong>Repeated near-identical calls in one session</strong> (<code>repeated_similar_tool_calls</code>,
+            D4) are worth a second look for dedup/caching — see the Limitations section below for exactly how
+            strong that signal is (and isn't).
+          </li>
+          <li>
+            <strong>If the tool is a built-in binary/asset reader</strong> (e.g. <code>Read</code> on
+            <code>.png</code>/<code>.pdf</code> files), this is a Claude Code settings problem, not an MCP
+            problem — add an exclude glob pattern rather than trying to configure an MCP server that isn't
+            involved.
+          </li>
+        </ol>
+
+        <h2 id="limitations">Limitations</h2>
+        <ul>
+          <li>
+            <strong>Response size is estimated, not billed.</strong> <code>response_tokens_est</code> comes from
+            a ~3.5 chars/token heuristic over the tool result text, computed locally — it is not the token count
+            Anthropic actually charged for, and it can't be turned into one after the fact. Treat it as a sizing
+            signal for comparison across tools, not an invoice line.
+          </li>
+          <li>
+            <strong>No call arguments are ever stored.</strong> <code>tool_events</code> deliberately never
+            captures the arguments a tool was called with (see <code>ToolEvent</code> in <code>src/types.ts</code>)
+            — this is by-design privacy, not a gap to be filled. You can learn "this tool+server pair is heavy,"
+            never "it was heavy because of this specific query/path/file." The one exception is
+            <code>file_ext</code>, which captures only the lowercased extension from a <code>file_path</code>/
+            <code>path</code>/<code>notebook_path</code> argument (e.g. <code>png</code>), never the path itself.
+          </li>
+          <li>
+            <strong>"Repeated calls" is an approximation, by design (D4).</strong> The
+            <code>repeated_similar_tool_calls</code> detector cannot do true argument-level dedup — there's
+            nothing to compare arguments against. Instead it clusters calls in the same session by same tool +
+            timing proximity (within a 5-minute window) + response-size similarity (within 10% of the cluster's
+            running average) as a proxy for "probably did something similar repeatedly." It is explicitly not
+            proof of identical calls, confidence is capped at <code>medium</code> for exactly this reason, and
+            every finding says so in its own evidence text.
+          </li>
+          <li>
+            <strong>Codex tool calls are never attributed to an MCP server.</strong> <code>codex-parser.ts</code>
+            hardcodes <code>mcp_server: null</code> for every Codex tool event — Codex's transcript format
+            doesn't carry the <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> naming convention Claude Code uses,
+            so there is currently no way to tell a Codex-side MCP tool call apart from one of Codex's own
+            built-in function/custom tools in Token Meter's breakdown. Everything in this guide's MCP-server
+            attribution is Claude Code-only; Codex tool calls still show up (by tool name, response size,
+            latency) but always as <code>mcp_server: null</code>.
+          </li>
+          <li>
+            <strong>The "savings" number is a heuristic, not a measurement.</strong>
+            <code>oversized_tool_response</code>'s projected weekly savings assumes 40% of the average response
+            is reducible — a flat assumption, not something derived from the actual tool or your usage of it.
+          </li>
+          <li>
+            <strong><code>--source</code>/<code>--project</code> scoping on this specific detector is best-effort.</strong>
+            The underlying <code>(tool_name, mcp_server)</code> aggregate query has no source/project columns of
+            its own, so an <code>oversized_tool_response</code> finding's reported <code>source</code>/
+            <code>project</code> echoes what you asked for rather than guaranteeing the aggregate itself is
+            confined to it — a tool called from both Claude Code and Codex, or from two different projects,
+            can be silently mixed into one finding.
+          </li>
+        </ul>
+
+        <h2 id="related">Related links</h2>
+        <ul class="guide-links">
+          <li><a href="/guides/find-expensive-claude-code-sessions/">Find your most expensive Claude Code sessions</a></li>
+          <li><a href="/guides/find-slow-mcp-tools/">Find the MCP tools slowing your sessions down</a></li>
+          <li><a href="/guides/reduce-large-mcp-responses/">Reduce oversized MCP tool responses</a></li>
+          <li><a href="/guides/codex-token-cost/">Track Codex token cost alongside Claude Code</a></li>
+        </ul>
+
+        <p class="guide-cta">
+          <a href="/">← Token Meter home</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">Source on GitHub</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/mcp-server.md" target="_blank" rel="noreferrer">Full MCP server docs</a>
+        </p>
+      </article>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .guide-hero { padding-bottom: 32px; }
+      .guide-breadcrumb { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+      .guide-breadcrumb a { color: var(--muted); }
+      .guide-meta { color: var(--muted); font-size: 13px; margin: 0; }
+      .guide-hero code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+
+      .guide-main { max-width: 760px; margin: 0 auto; padding: 0 32px 72px; }
+      .guide-main h2 { font-size: 22px; margin: 48px 0 16px; letter-spacing: -0.01em; scroll-margin-top: 80px; }
+      .guide-main h2:first-child { margin-top: 0; }
+      .guide-main h3 { font-size: 16px; margin: 28px 0 10px; color: var(--text); }
+      .guide-main p, .guide-main li { color: var(--muted); line-height: 1.7; }
+      .guide-main strong { color: var(--text); }
+      .guide-main ul, .guide-main ol { padding-left: 22px; margin: 0 0 16px; }
+      .guide-main li { margin-bottom: 10px; }
+      .guide-main code {
+        background: var(--panel-2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--accent-2);
+      }
+      .guide-main .code {
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 12px 0 16px;
+      }
+      .guide-main .terminal {
+        max-width: 100%;
+        margin: 12px 0 20px;
+        font-size: 12.5px;
+      }
+      .guide-label { color: var(--text); font-size: 13px; font-weight: 600; margin: 24px 0 4px; }
+      .guide-label code { color: var(--accent-2); }
+      .guide-links { list-style: none; padding: 0; margin: 0 0 24px; }
+      .guide-links li {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+      }
+      .guide-links a { color: var(--text); font-weight: 600; }
+      .guide-cta { color: var(--muted); font-size: 14px; margin-top: 40px; }
+
+      @media (max-width: 600px) {
+        .guide-main { padding: 0 16px 48px; }
+      }
+    </style>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>

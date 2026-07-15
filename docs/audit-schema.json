@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://token-meter.dev/schemas/audit-report.json",
+  "title": "AuditReport",
+  "description": "JSON shape printed by `token-meter audit --json`. Mirrors src/audit/types.ts — see docs/audit.md for field-by-field explanations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "period", "sources", "usage", "summary", "findings"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this report was generated."
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "days"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "days": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/AuditSourceSummary" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "totalTokens",
+        "estimatedCostUsd"
+      ],
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "cacheReadTokens": { "type": "integer", "minimum": 0 },
+        "cacheWriteTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 },
+        "estimatedCostUsd": {
+          "type": ["number", "null"],
+          "description": "null only when there are zero priced events in the window."
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["findingCount", "costAssociatedUsd", "overallConfidence", "findingsMayOverlap"],
+      "properties": {
+        "findingCount": { "type": "integer", "minimum": 0 },
+        "costAssociatedUsd": {
+          "type": ["number", "null"],
+          "description": "Sum of findings[].estimatedCostUsd, deduplicated across shared costEventIds. null when no finding has a priced cost."
+        },
+        "overallConfidence": { "$ref": "#/definitions/Confidence" },
+        "findingsMayOverlap": {
+          "type": "boolean",
+          "description": "true when two or more findings shared a costEventIds entry and the engine dropped one side to avoid double-counting."
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Finding" }
+    }
+  },
+  "definitions": {
+    "Confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "CostLabel": {
+      "type": "string",
+      "enum": ["estimated_cost", "cost_associated", "not_available"],
+      "description": "estimated_cost: a genuine (if heuristic) USD estimate. cost_associated: cost data exists but is too indirect/shared to attribute cleanly. not_available: no cost data (estimatedCostUsd is null whenever costLabel is this)."
+    },
+    "SourceName": {
+      "type": "string",
+      "enum": ["claude-code", "codex"]
+    },
+    "SourceStatus": {
+      "type": "string",
+      "enum": ["available", "partial", "unavailable", "error"]
+    },
+    "FindingType": {
+      "type": "string",
+      "enum": [
+        "expensive_session",
+        "oversized_tool_response",
+        "slow_tool",
+        "repeated_similar_tool_calls",
+        "cache_inefficiency",
+        "high_cost_model_signal"
+      ]
+    },
+    "AuditSourceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "coverage", "recordsAnalyzed", "recordsSkipped", "warnings"],
+      "properties": {
+        "name": { "$ref": "#/definitions/SourceName" },
+        "status": { "$ref": "#/definitions/SourceStatus" },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of the requested period this source had usable data for."
+        },
+        "recordsAnalyzed": { "type": "integer", "minimum": 0 },
+        "recordsSkipped": { "type": "integer", "minimum": 0 },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "rank",
+        "type",
+        "title",
+        "description",
+        "source",
+        "project",
+        "sessionId",
+        "toolName",
+        "metrics",
+        "estimatedCostUsd",
+        "costLabel",
+        "confidence",
+        "evidence",
+        "recommendations",
+        "costEventIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Deterministic 16-char hex id (sha256, truncated) — stable across re-runs for the same underlying finding."
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based rank within the final report; lower = more important."
+        },
+        "type": { "$ref": "#/definitions/FindingType" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "source": { "$ref": "#/definitions/SourceName" },
+        "project": { "type": ["string", "null"] },
+        "sessionId": { "type": ["string", "null"] },
+        "toolName": { "type": ["string", "null"] },
+        "metrics": {
+          "type": "object",
+          "description": "Detector-specific numeric/string evidence (e.g. { avgTokens, calls }). Shape varies by `type` — not fixed by this schema."
+        },
+        "estimatedCostUsd": { "type": ["number", "null"] },
+        "costLabel": { "$ref": "#/definitions/CostLabel" },
+        "confidence": { "$ref": "#/definitions/Confidence" },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "recommendations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "costEventIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "session:<source>:<session_id> for session-level cost (D1, D6); tool:<tool_name>:<mcp_server> for tool-aggregate projected savings (D2); empty for findings with no natural cost-event key (D3, D4, D5)."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="How to find the exact Claude Code session, sub-agent, or model choice that drove your bill up — using token-meter audit's expensive_session and high_cost_model_signal detectors, cross-checked with token-meter subagents and stats. Real CLI output, honest limitations." />
+    <meta name="dateModified" content="2026-07-15" />
+    <meta property="og:title" content="Find your most expensive Claude Code sessions | Token Meter" />
+    <meta property="og:description" content="Your Claude Code bill is high but you don't know which session caused it. token-meter audit ranks sessions by cost share and flags short, low-output runs on high-cost models — here's the exact command and how to read it." />
+    <meta property="og:url" content="https://token-meter.dev/guides/find-expensive-claude-code-sessions/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Find your most expensive Claude Code sessions" />
+    <meta name="twitter:description" content="Use token-meter audit to rank sessions by cost share and flag short, high-cost-model runs — cross-checked with subagents and stats." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>Find Your Most Expensive Claude Code Sessions — token-meter audit Guide</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/guides/find-expensive-claude-code-sessions/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "Find Your Most Expensive Claude Code Sessions",
+      "description": "How to find the exact Claude Code session, sub-agent, or model choice that drove your bill up, using token-meter audit cross-checked with subagents and stats.",
+      "datePublished": "2026-07-15",
+      "dateModified": "2026-07-15",
+      "mainEntityOfPage": "https://token-meter.dev/guides/find-expensive-claude-code-sessions/",
+      "image": "https://token-meter.dev/logo-transparent.png",
+      "author": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How do I find which Claude Code session cost the most?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Run 'token-meter audit --days 7'. The expensive_session detector (D1) ranks sessions by their share of total analyzed cost in the window and flags any session at or above a 15% cost share, or that's at least 3x the next-priciest session. The finding names the exact session ID and project." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does token-meter audit read the content of my prompts or tool calls?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. It only aggregates token_events (tokens, cost, model, timing) and tool_events (tool name, MCP server, response size, latency). tool_events stores no call arguments by design, so audit can point to a session or tool pattern but can't show you what was actually asked or returned — you still need to open the session transcript for that." }
+        },
+        {
+          "@type": "Question",
+          "name": "What does high_cost_model_signal mean in the audit output?",
+          "acceptedAnswer": { "@type": "Answer", "text": "It flags sessions that used a high-cost-tier model (ranked by $/M output rate, not a hardcoded model name) but finished in under 2 minutes and produced under 500 output tokens — a pattern worth a second look, not proof the model choice was wrong. Confidence is always reported as low for this detector." }
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/@whdrnr2583/token-meter" target="_blank" rel="noreferrer">npm</a>
+      </nav>
+    </header>
+
+    <main class="guide-main">
+      <p class="guide-breadcrumb"><a href="/">Home</a> · Guides · Find your most expensive Claude Code sessions</p>
+
+      <section class="guide-hero">
+        <h1>Find your most expensive Claude Code sessions</h1>
+        <p class="sub">
+          Your bill is higher than usual, but <code>token-meter stats</code> only gives you a daily/model
+          rollup — it doesn't point at a culprit. <code>token-meter audit</code> does: it ranks sessions by cost
+          share and flags short sessions on high-cost models, so the answer becomes "this one session," not
+          "sometime this week."
+        </p>
+        <p class="hint">Updated 2026-07-15 · applies to <code>@whdrnr2583/token-meter</code> current release.</p>
+      </section>
+
+      <article class="guide-body">
+        <h2>Problem</h2>
+        <p>
+          You glance at your Claude Max/Pro usage or your API invoice and it's noticeably higher than a normal
+          week — but nothing tells you <em>why</em>. <code>token-meter stats 7</code> shows totals per day and
+          per model, which is enough to see <em>that</em> spend went up, but not enough to see <em>which</em>
+          session, sub-agent, or model choice actually drove it. Scrolling through
+          <code>~/.claude/projects/*/*.jsonl</code> by hand to find the expensive one doesn't scale once you have
+          more than a handful of sessions a day.
+        </p>
+
+        <h2>Cause</h2>
+        <p>In practice, a spend spike almost always traces back to one of three patterns:</p>
+        <ol>
+          <li>
+            <strong>One long session dominated the period.</strong> A multi-hour session with a lot of tool
+            calls, large context, or repeated back-and-forth can rack up cost that dwarfs everything else that
+            week, even though no single message in it looks unusual.
+          </li>
+          <li>
+            <strong>A sub-agent (Task/Agent) burned tokens you didn't see.</strong> Sub-agent JSONL rows carry
+            the <em>parent</em> session's ID, so a runaway sub-agent's cost hides inside a session total unless
+            you specifically split main-session spend from sub-agent spend.
+          </li>
+          <li>
+            <strong>A short session ran on an unnecessarily expensive model.</strong> A quick exchange on Opus
+            or Fable that produced almost no output still bills at the top-tier rate — fine if the task
+            genuinely needed it, wasteful if a cheaper model would have done just as well.
+          </li>
+        </ol>
+        <p>
+          The <code>audit</code> command's <code>expensive_session</code> (D1) and
+          <code>high_cost_model_signal</code> (D6) detectors exist specifically for the first and third
+          patterns; the sub-agent split (pattern 2) is covered separately by <code>token-meter subagents</code>,
+          shown below as a cross-check.
+        </p>
+
+        <h2>Command</h2>
+        <p>Ingest first if you haven't recently (audit reads only what's already in the local SQLite DB), then run the audit:</p>
+        <pre class="code">token-meter ingest
+token-meter audit --days 7</pre>
+        <p>Full flag set, verified against <code>src/cli.ts</code>:</p>
+        <pre class="code">token-meter audit [--days N] [--source all|claude|codex] [--project &lt;value&gt;] [--limit N] [--json]</pre>
+        <ul>
+          <li><code>--days N</code> — trailing window, default <strong>7</strong>. Clamped to your history entitlement (Free: 7 days, Pro: 30 days) the same way <code>stats</code>/<code>subagents</code> are; a larger request prints a clamp warning to stderr and still runs.</li>
+          <li><code>--source all|claude|codex</code> — restrict to one source (<code>claude</code>/<code>codex</code> map to the internal <code>claude-code</code>/<code>codex</code> identifiers). Default <code>all</code>.</li>
+          <li><code>--project &lt;value&gt;</code> — exact-match filter once you've narrowed down which project the culprit is in.</li>
+          <li><code>--limit N</code> — caps findings returned after ranking. Default <strong>5</strong> in terminal mode, <strong>20</strong> in <code>--json</code> mode.</li>
+          <li><code>--json</code> — prints the full <code>AuditReport</code> as indented JSON instead of the terminal summary, for scripting.</li>
+        </ul>
+      </article>
+
+      <article class="guide-body">
+        <h2>Synthetic output</h2>
+        <p class="synthetic-note">⚠ Fictional numbers below — not real user data. Formatted exactly as <code>src/audit/reporters/terminal.ts</code> renders it.</p>
+        <pre class="terminal"><span class="term-cmd">$ token-meter audit --days 7</span>
+
+TOKEN METER AUDIT — LAST 7 DAYS
+
+Sources
+claude-code: available (940 records analyzed, 100% of window covered)
+codex: partial (58 records analyzed, 71% of window covered — see warnings)
+
+Confirmed usage
+Tokens: 4.04M total (in 610.0k, out 89.0k, cache 3.35M)
+Estimated cost: $58.3200
+
+Efficiency signals
+Findings: 2
+Cost associated: $43.2000
+Confidence: medium
+
+1. Session accounted for 70% of analyzed cost
+Source: claude-code
+Project: /Users/jordan/dev/api-gateway
+Session: a3f9c1-88be-4d02
+Tool: -
+Evidence: $41.02 across 268 events over 214 min (top model: claude-opus-4-8). That's 70.3% of $58.32 across 11 sessions in the 7-day window.
+Confidence: high
+Suggested action: Review this session's transcript to see what drove the cost (model choice, tool calls, context size).
+
+2. 2 short opus-4-1 sessions with minimal output
+Source: claude-code
+Project: /Users/jordan/dev/api-gateway
+Session: -
+Tool: -
+Evidence: opus-4-1 is billed at $75/M output tokens — at or above this audit's high-cost bar of $25.00/M, derived from the current pricing table rather than a hardcoded model name. b7e2af-11cc (/Users/jordan/dev/api-gateway): 47s wall-clock, 210 output tokens, $1.3120. d94a02-77f1 (/Users/jordan/dev/api-gateway): 63s wall-clock, 340 output tokens, $0.8680. Separately: project "/Users/jordan/dev/api-gateway" alone accounts for 74% of total analyzed spend in the 7-day window ($43.20 of $58.32) — a cost-concentration signal worth noting alongside the model-tier pattern above.
+Confidence: low
+Suggested action: Review whether every short session required this model.
+
+Warnings
+- [codex] cache_inefficiency (D5) does not run for Codex: Codex's usage payload never reports cache_write_tokens, so cache-waste-day detection is structurally unavailable for this source (see src/audit/detectors/cache-inefficiency.ts).</pre>
+      </article>
+
+      <article class="guide-body">
+        <h2>Interpretation</h2>
+        <ul>
+          <li>
+            <strong>Finding 1 (D1, <code>expensive_session</code>)</strong> — session <code>a3f9c1-88be-4d02</code>
+            in <code>api-gateway</code> alone accounted for 70% of the week's analyzed cost. <code>confidence: high</code>
+            means it's backed by enough events (≥3) that one anomalous row isn't the whole story — this is the
+            session to open first.
+          </li>
+          <li>
+            <strong>Finding 2 (D6, <code>high_cost_model_signal</code>)</strong> — two short, low-output sessions
+            ran on <code>opus-4-1</code> ($75/M output — well above the $25/M "high-cost" bar the detector derives
+            from the current pricing table, not a hardcoded model list). Together they're a small dollar amount
+            ($2.18) next to Finding 1, but the pattern — quick exchange, top-tier model, almost no output — is
+            worth a glance. <code>confidence: low</code> here is not a weaker version of "high"; it's the
+            detector's honest ceiling, because "was the model choice wrong" is a judgment call no threshold can
+            settle.
+          </li>
+          <li>
+            <strong>The folded-in project note</strong> ("project ... alone accounts for 74%...") is D6's
+            secondary signal, not a separate finding — <code>api-gateway</code> is where essentially all of this
+            week's spend concentrated, across both findings.
+          </li>
+          <li>
+            <code>Cost associated: $43.2000</code> is the deduplicated sum of both findings' costs
+            ($41.02 + $2.18) — safe to trust as-is; <code>findingsMayOverlap</code> would flip to true (and get
+            called out in the terminal text) only if two findings shared the same underlying session.
+          </li>
+          <li>
+            <code>codex: partial</code> in Sources plus the D5 warning means: this account has Codex activity,
+            but the cache-waste detector structurally can't run against it — not a bug, not missing data.
+          </li>
+        </ul>
+      </article>
+
+      <article class="guide-body">
+        <h2>Cross-checking with <code>subagents</code> and <code>stats</code></h2>
+        <p>
+          D1 tells you <em>which session</em>; it doesn't tell you whether that session's cost was the main
+          conversation or a sub-agent running underneath it. Check the sub-agent split for the same window:
+        </p>
+        <pre class="code">token-meter subagents 7</pre>
+        <pre class="terminal"><span class="term-cmd">$ token-meter subagents 7</span>
+
+=== Sub-agent costs (7d) ===
+Main:       $50.1400  events=712
+Sub-agents:  $8.1800  events=228  (14.0% of spend)
+
+Priciest sub-agents:
+  agent-7f3a21           $6.4400  events=94   out=41.2k  opus-4-8
+  agent-04e9bb           $1.2100  events=52   out=9.8k   sonnet-4-6
+  agent-b810c4           $0.5460  events=82   out=4.1k   haiku-4-5
+
+Invocation latency (parent-side Task/Agent calls):
+  Task   calls=  18  avg=42.3s  max=118.7s</pre>
+        <p>
+          Here sub-agents are only 14% of total spend, and the single priciest sub-agent
+          (<code>agent-7f3a21</code>, $6.44) is well under Finding 1's $41.02 — so this particular session's cost
+          is mostly <em>main-conversation</em> spend, not a runaway sub-agent. If instead <code>agent-7f3a21</code>
+          had cost close to $41, that would point you at the Task/Agent prompt that spawned it, not the parent
+          conversation.
+        </p>
+        <p>
+          One gotcha: if <code>Sub-agents: $0.0000 events=0</code> shows up on an account you know has run
+          sub-agents, it's not that none ran — <code>agent_id</code> attribution was only backfilled starting in
+          <code>v0.1.19</code>. Run <code>token-meter ingest --force</code> once to reprocess older JSONL and
+          recover the split.
+        </p>
+        <p>
+          To confirm the model breakdown independently (and rule out that Finding 1's cost is just one project
+          having a busy week rather than the flagged session specifically), run:
+        </p>
+        <pre class="code">token-meter stats 7</pre>
+        <p>
+          and check whether <code>api-gateway</code>'s row under <em>By project</em> and <code>claude-opus-4-8</code>'s
+          row under <em>By model</em> roughly match what the audit finding already told you. If they don't line
+          up, something else in that project (not the flagged session) is also contributing, and it's worth a
+          second <code>audit --project /Users/jordan/dev/api-gateway --days 30</code> scoped run.
+        </p>
+      </article>
+
+      <article class="guide-body">
+        <h2>Actions</h2>
+        <ol>
+          <li>
+            <strong>Open the flagged session's transcript.</strong> The audit finding gives you the exact
+            session ID and project path — on the Free tier, locate the JSONL directly at
+            <code>~/.claude/projects/&lt;project-slug&gt;/&lt;session_id&gt;.jsonl</code> and look at what ran in
+            that window. Pro adds a dashboard session drill-down (down to the message) so you don't have to grep
+            JSONL by hand.
+          </li>
+          <li>
+            <strong>If <code>subagents</code> shows a high sub-agent share for that window</strong>, look at
+            which <code>agent_id</code> is priciest and, separately, at the Task/Agent invocation latency block —
+            a high <code>avg</code>/<code>max</code> latency alongside a high-cost sub-agent usually means the
+            parent prompt is handing off too broad a task; narrowing the sub-agent's scope cuts both cost and
+            wall-clock time.
+          </li>
+          <li>
+            <strong>If a D6 finding recurs</strong>, decide case by case whether those short sessions actually
+            needed the flagged model — route genuinely trivial follow-ups to Sonnet/Haiku instead, but don't
+            treat every low-output Opus session as waste; a hard one-shot judgment call can legitimately be short
+            <em>and</em> need the top-tier model.
+          </li>
+          <li>
+            <strong>Re-run scoped once you have a suspect.</strong>
+            <code>token-meter audit --project /Users/jordan/dev/api-gateway --days 30</code> (Pro, for the
+            30-day window) confirms whether the pattern is a one-off spike or a recurring habit in that project.
+          </li>
+          <li>
+            <strong>Script it if this becomes a weekly habit.</strong> <code>token-meter audit --json --limit 20</code>
+            gives you the full <code>AuditReport</code> (see <code>docs/audit-schema.json</code>) to pipe into a
+            saved file or a simple weekly diff, instead of re-reading the terminal output by eye every time.
+          </li>
+        </ol>
+      </article>
+
+      <article class="guide-body callout">
+        <h2>Limitations</h2>
+        <ul>
+          <li>
+            <strong>Cost is a USD-equivalent estimate, not your invoice.</strong> Every number here comes from
+            <code>pricing.ts</code>'s list-price table applied to token counts — on a flat-fee plan (Claude Max)
+            this shows what the same usage would have cost on metered API pricing, not money actually charged.
+          </li>
+          <li>
+            <strong><code>audit</code> can tell you which session, not why.</strong> <code>tool_events</code>
+            stores no call arguments by design (a deliberate privacy invariant, not a gap) — so a finding can
+            point at a session or a tool pattern, but never show you the actual prompt text, file contents, or
+            command that ran. You still have to open the transcript.
+          </li>
+          <li>
+            <strong>The related detector <code>repeated_similar_tool_calls</code> (D4) is a proxy, not proof.</strong>
+            If your "runaway session" investigation leads you to suspect duplicate tool calls, note that D4 can
+            only match on same tool + same session + similar response size within a 5-minute window — never on
+            actual argument equality, since arguments aren't stored. Two <code>Read</code> calls on genuinely
+            different files, or a legitimate retry loop, can both match. Confidence is capped at <code>medium</code>
+            for exactly this reason.
+          </li>
+          <li>
+            <strong>D6's confidence is always <code>low</code>, by design.</strong> The duration/output/model-rate
+            thresholds are objective, but "was this model choice actually unjustified" is a judgment call no
+            threshold can prove — treat every D6 finding as a review prompt, never a downgrade instruction.
+          </li>
+          <li>
+            <strong>History is entitlement-clamped.</strong> Free caps <code>--days</code> at 7; Pro at 30.
+            Requesting more prints a clamp warning to stderr and still runs at the capped value — it won't error
+            out, but it also won't quietly show you more than your tier allows.
+          </li>
+          <li>
+            <strong>Cache-waste detection (D5) never fires for Codex</strong> — Codex's usage payload never
+            reports <code>cache_write_tokens</code>, so a Codex event can't structurally satisfy that detector's
+            condition. A <code>--source codex</code> audit legitimately returns zero D5 findings; it isn't a
+            missed detection.
+          </li>
+        </ul>
+      </article>
+
+      <article class="guide-body">
+        <h2>Related guides</h2>
+        <div class="related-grid">
+          <a class="related-card" href="/guides/claude-code-mcp-token-usage/">
+            <h3>Claude Code MCP token usage</h3>
+            <p>Which MCP server and tool is eating your tokens — the per-tool breakdown behind the audit's session totals.</p>
+          </a>
+          <a class="related-card" href="/guides/find-slow-mcp-tools/">
+            <h3>Find slow MCP tools</h3>
+            <p>The latency side of the same data — D3's <code>slow_tool</code> detector, for when a session was expensive <em>and</em> slow.</p>
+          </a>
+          <a class="related-card" href="/guides/reduce-large-mcp-responses/">
+            <h3>Reduce large MCP responses</h3>
+            <p>D2's <code>oversized_tool_response</code> detector — trim the tool calls that are quietly padding every session's context.</p>
+          </a>
+          <a class="related-card" href="/guides/codex-token-cost/">
+            <h3>Codex token cost</h3>
+            <p>The same "which session cost the most" question, but for OpenAI Codex — including where its audit coverage is thinner than Claude Code's.</p>
+          </a>
+        </div>
+      </article>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .guide-main { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+      .guide-breadcrumb { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+      .guide-hero h1 { font-size: clamp(28px, 4vw, 38px); font-weight: 700; letter-spacing: -0.02em; margin: 0 0 16px; line-height: 1.15; }
+      .guide-hero .sub { font-size: 17px; color: var(--muted); margin: 0 0 8px; max-width: 680px; }
+      .guide-hero .hint { margin-bottom: 32px; }
+      .guide-hero code, .guide-body code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; color: var(--accent-2); }
+      .guide-body { margin: 36px 0; }
+      .guide-body h2 { font-size: 21px; margin: 0 0 14px; letter-spacing: -0.01em; }
+      .guide-body h3 { font-size: 15px; margin: 0 0 6px; }
+      .guide-body p { margin: 0 0 14px; }
+      .guide-body ul, .guide-body ol { margin: 0 0 14px; padding-left: 22px; }
+      .guide-body li { margin-bottom: 10px; color: var(--text); }
+      .guide-body li:last-child { margin-bottom: 0; }
+      .guide-body pre.code { display: block; white-space: pre-wrap; word-break: break-word; margin: 0 0 16px; }
+      .guide-body .terminal { margin: 0 0 16px; max-width: 100%; }
+      .synthetic-note { color: var(--warn); font-size: 13px; font-weight: 600; }
+      .callout { background: var(--panel); border: 1px solid var(--warn); border-radius: 12px; padding: 24px 28px; box-shadow: 0 0 0 1px var(--warn); }
+      .related-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+      .related-card { display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; color: var(--text); text-decoration: none; transition: border-color 0.15s; }
+      .related-card:hover { border-color: var(--accent); text-decoration: none; }
+      .related-card h3 { color: var(--accent-2); margin: 0 0 8px; font-size: 15px; }
+      .related-card p { margin: 0; color: var(--muted); font-size: 13px; }
+      @media (max-width: 600px) {
+        .guide-main { padding: 20px 16px 48px; }
+        .callout { padding: 18px; }
+      }
+    </style>
+    <script>
+      document.getElementById('year').textContent = String(new Date().getFullYear());
+    </script>
+  </body>
+</html>

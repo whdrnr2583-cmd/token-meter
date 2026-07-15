@@ -1,6 +1,6 @@
 {
   "name": "@whdrnr2583/token-meter",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Local-first dashboard + MCP server for Claude Code and Codex token usage. MCP-aware, multi-vendor, MIT.",
   "license": "MIT",
   "type": "module",
@@ -46,7 +46,7 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "files": [
-    "dist/*.js",
+    "dist/**/*.js",
     "public",
     "docs",
     "README.md",

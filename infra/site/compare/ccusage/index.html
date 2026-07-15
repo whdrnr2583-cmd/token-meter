@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A dimension-by-dimension look at how Token Meter and ccusage differ for Claude Code / Codex usage tracking: supported sources, audit depth, output modes, and data handling. Last reviewed 2026-07-15." />
+    <meta property="og:title" content="Token Meter vs ccusage" />
+    <meta property="og:description" content="Use-case comparison: supported sources, audit depth, output modes, and data handling. Last reviewed 2026-07-15." />
+    <meta property="og:url" content="https://token-meter.dev/compare/ccusage/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Token Meter vs ccusage" />
+    <meta name="twitter:description" content="Use-case comparison: supported sources, audit depth, output modes, and data handling. Last reviewed 2026-07-15." />
+    <title>Token Meter vs ccusage — use-case comparison</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/compare/ccusage/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      /* Page-specific additions on top of /styles.css — reuses the same
+         CSS variables (--panel, --border, --muted, etc.) defined there. */
+      .compare-hero { padding-bottom: 24px; }
+      .reviewed {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 4px 10px;
+        border: 1px solid var(--warn);
+        border-radius: 999px;
+        color: var(--warn);
+        font-size: 13px;
+      }
+      .compare-intro p { color: var(--muted); max-width: 720px; }
+      .compare-intro a { color: var(--accent-2); }
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      table.matrix { width: 100%; border-collapse: collapse; background: var(--panel); font-size: 14px; }
+      table.matrix th, table.matrix td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      table.matrix thead th {
+        background: var(--panel-2);
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      table.matrix tbody th {
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+        width: 190px;
+      }
+      table.matrix td { color: var(--muted); }
+      table.matrix tbody tr:last-child th,
+      table.matrix tbody tr:last-child td { border-bottom: none; }
+      .compare-notes ul { color: var(--muted); font-size: 14px; padding-left: 20px; }
+      .compare-notes li { margin-bottom: 8px; }
+      .compare-notes code {
+        background: var(--panel-2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: var(--accent-2);
+      }
+      .compare-sources { color: var(--muted); font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="compare-hero">
+      <h1>Token Meter vs <span class="accent">ccusage</span></h1>
+      <p class="sub">
+        Both projects read the JSONL logs Claude Code and Codex already write and turn them into
+        usage numbers — this is a use-case comparison of what each one does with that data, not a
+        ranking. Where a claim about ccusage couldn't be verified against its published docs, it's
+        marked as such below rather than guessed at.
+      </p>
+      <p class="reviewed">Last reviewed: 2026-07-15 — feature sets and pricing on both projects change; check the linked repos for the current state.</p>
+    </section>
+
+    <section class="compare-intro">
+      <p>
+        <a href="https://github.com/ryoppippi/ccusage" target="_blank" rel="noreferrer">ccusage</a>
+        is an MIT-licensed CLI by ryoppippi for reporting token usage and estimated cost across a
+        broad set of coding-agent CLIs. Its
+        <a href="https://raw.githubusercontent.com/ryoppippi/ccusage/main/docs/guide/index.md" target="_blank" rel="noreferrer">guide</a>
+        describes daily / weekly / monthly / session reports, JSON export, a 5-hour billing-block
+        view, a beta statusline integration, and a separate
+        <code>@ccusage/mcp</code> package.
+      </p>
+      <p>
+        Token Meter (this project) ingests Claude Code and Codex JSONL logs into a local SQLite
+        database and layers a session / tool / MCP-server efficiency audit on top — the
+        <code>audit</code> command, the dashboard's tool breakdown, and four read MCP tools. See
+        this repo's <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">README</a>
+        and <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/audit.md" target="_blank" rel="noreferrer">docs/audit.md</a>
+        for the source of the claims below.
+      </p>
+    </section>
+
+    <section class="compare-matrix">
+      <h2>Use-case comparison</h2>
+      <div class="table-wrap">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th scope="col">Dimension</th>
+              <th scope="col">ccusage</th>
+              <th scope="col">Token Meter</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Primary use case</th>
+              <td>Usage / estimated-cost reporting CLI across many coding-agent CLIs.</td>
+              <td>Local dashboard + MCP server for Claude Code and Codex, with a session / tool / MCP-server efficiency audit layered on the same ingested data.</td>
+            </tr>
+            <tr>
+              <th scope="row">Supported sources</th>
+              <td>Per its README: Claude Code, Codex, OpenCode, Amp, Droid, Codebuff, Hermes Agent, pi-agent, Goose, OpenClaw, Kilo, Kimi, Qwen, GitHub Copilot CLI, and Gemini CLI (15 listed).</td>
+              <td>Ingests Claude Code (<code>~/.claude/projects/</code>) and Codex (<code>~/.codex/sessions/</code>) JSONL logs. A separate <code>proxy</code> command captures TTFT/TPS from a locally-run OpenAI-compatible model (e.g. Ollama, LM Studio, llama.cpp, vLLM) — a different mechanism from log ingest.</td>
+            </tr>
+            <tr>
+              <th scope="row">Data handling</th>
+              <td>Its README states the tool runs "100% Local," that "Your usage data never leaves your computer," and that it reads files without modifying them.</td>
+              <td>Stores parsed data in a local SQLite file (<code>~/.tokenpulse/usage.db</code>). Per this repo's README, no prompt or response bodies are stored by default — metadata (timestamps, token counts, tool names, response lengths) is all that's kept — and it makes no network calls to either vendor's API.</td>
+            </tr>
+            <tr>
+              <th scope="row">Audit depth</th>
+              <td>Documents usage/cost tables (daily, weekly, monthly, session, 5-hour blocks) with a per-model <code>--breakdown</code> flag. Its published docs don't describe an anomaly- or waste-flagging feature as of this review.</td>
+              <td><code>token-meter audit</code> runs six detectors over ingested history — expensive sessions, oversized tool responses, slow tools, repeated calls, cache waste, and a high-cost-model usage signal — ranked by cost and confidence, with terminal and <code>--json</code> output. Findings are worded as neutral observations for a human to review, not verdicts.</td>
+            </tr>
+            <tr>
+              <th scope="row">Per-tool / MCP-server breakdown</th>
+              <td>Not documented in its guide as of this review.</td>
+              <td>Tracks <code>tool_name</code>, <code>mcp_server</code>, response size, and latency per call. No call arguments are stored beyond a lowercased file extension when a tool call touched a file path — never the path itself or any other input field.</td>
+            </tr>
+            <tr>
+              <th scope="row">Output modes</th>
+              <td>Terminal tables, JSON export, a 5-hour billing-block live view, a beta statusline integration, and a separate <code>@ccusage/mcp</code> server package (reported to mirror the daily / monthly / session / blocks commands over MCP).</td>
+              <td>Terminal tables (<code>stats</code>, <code>subagents</code>, <code>local</code>, <code>audit</code>), <code>--json</code> audit export, a local web dashboard (<code>serve</code> → <code>http://localhost:8765</code>), and an MCP server (<code>mcp</code>) exposing four read tools: <code>usage_summary</code>, <code>recent_sessions</code>, <code>session_tools</code>, <code>refresh_data</code>.</td>
+            </tr>
+            <tr>
+              <th scope="row">Cost-figure disclaimer</th>
+              <td>Its docs state costs "are estimates and may not reflect actual billing."</td>
+              <td>This repo's README states cost figures are estimates computed locally from token counts × a published per-model rate table, and are not validated against an actual Anthropic / OpenAI invoice.</td>
+            </tr>
+            <tr>
+              <th scope="row">License</th>
+              <td>MIT.</td>
+              <td>MIT for the CLI, dashboard, and parsers. Pro-tier features ship in a separate package under a closed-source license.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="compare-notes">
+      <h2>Notes on this comparison</h2>
+      <ul>
+        <li>This is a feature/use-case comparison, not a ranking — pick whichever fits the sources and workflow you actually have.</li>
+        <li>ccusage's row content is drawn from its GitHub README and published guide as of the review date above; it wasn't run or installed to verify behavior directly, so treat any gap here as "not found in the docs," not "confirmed absent."</li>
+        <li>Token Meter's row content is drawn from this repository's README, <code>docs/audit.md</code>, and <code>src/cli.ts</code> as shipped at review time — not from marketing copy elsewhere on this site.</li>
+        <li>Neither project publishes a security audit that this page is aware of; the data-handling row above quotes each project's own documentation, not an independent verification.</li>
+      </ul>
+      <p class="compare-sources">
+        Sources: <a href="https://github.com/ryoppippi/ccusage" target="_blank" rel="noreferrer">github.com/ryoppippi/ccusage</a> ·
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">github.com/whdrnr2583-cmd/token-meter</a> ·
+        <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/audit.md" target="_blank" rel="noreferrer">docs/audit.md</a>
+      </p>
+    </section>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <script src="/site.js"></script>
+  </body>
+</html>

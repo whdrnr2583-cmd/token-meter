@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A synthetic, illustrative sample of what `token-meter audit` finds — an expensive session, an oversized MCP tool response, a slow tool, a repeated-call pattern, and cache inefficiency. No installation required, no real user logs." />
+    <meta property="og:title" content="Token Meter — Live Demo (Synthetic Audit Report)" />
+    <meta property="og:description" content="See a sample token-meter audit report — synthetic data, no install required. Same terminal + JSON output shape as the real CLI." />
+    <meta property="og:url" content="https://token-meter.dev/demo" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Token Meter — Live Demo (Synthetic Audit Report)" />
+    <meta name="twitter:description" content="A synthetic sample of a token-meter audit report — no install required." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>Token Meter — Demo: Sample Audit Report (Synthetic Data)</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/demo" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>See what a<br /><span class="accent">token-meter audit</span> finds.</h1>
+      <p class="sub">
+        A worked example of the report <code>token-meter audit</code> prints — an expensive session, an
+        oversized MCP tool response, a slow tool, a repeated-call pattern, and a day of wasted prompt-cache
+        writes. Every name, ID, and number on this page is invented to show the shape of the output.
+      </p>
+      <div class="demo-badges">
+        <span class="pill">Synthetic demo data</span>
+        <span class="pill">No installation required</span>
+        <span class="pill">No real user logs</span>
+      </div>
+      <div class="cta">
+        <p class="hint" style="margin: 0 0 8px;">Run a free audit on your own logs — 100% local, nothing uploaded:</p>
+        <pre class="code">npx -y @whdrnr2583/token-meter audit</pre>
+        <p style="margin: 14px 0 0;">
+          <a class="subscribe-btn" href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">View on GitHub →</a>
+        </p>
+      </div>
+    </section>
+
+    <section class="demo-terminal-sec">
+      <h2>Terminal output</h2>
+      <p class="demo-sub">
+        This is the exact block shape <code>token-meter audit</code> prints to your terminal — reproduced here
+        with made-up projects, sessions, and figures so you can see it without installing anything.
+      </p>
+      <pre class="terminal"><span class="term-cmd">$ npx -y @whdrnr2583/token-meter audit --days 7</span>
+
+TOKEN METER AUDIT — LAST 7 DAYS
+
+Sources
+claude-code: available (1842 records analyzed, 100% of window covered)
+codex: partial (414 records analyzed, 99% of window covered — see warnings)
+
+Confirmed usage
+Tokens: 13.42M total (in 3.14M, out 612.4k, cache 9.67M)
+Estimated cost: $46.8231
+
+Efficiency signals
+Findings: 5
+Cost associated: $20.4700
+Confidence: medium
+
+1. Session accounted for 34% of analyzed cost
+Source: claude-code
+Project: acme-invoice-api
+Session: cc-8f14e3a1
+Tool: -
+Evidence: $15.92 across 214 events over 47 min (top model: claude-opus-4-8). That's 34.0% of $46.82 across 58 sessions in the 7-day window.
+Confidence: high
+Suggested action: Review this session's transcript to see what drove the cost (model choice, tool calls, context size).
+
+2. [github] search_code responses averaging 21.4k tokens
+Source: claude-code
+Project: acme-invoice-api
+Session: -
+Tool: search_code
+Evidence: [github] search_code returns ~21,400 tokens/call on average (16 calls in 7d window; max 48,220). Configure `fields` or `limit` on [github] search_code to reduce response size (est. 136,960 tokens/week saved).
+Confidence: medium
+Suggested action: Narrow [github] search_code's query/filter scope instead of searching or listing broadly.
+
+3. [postgres] run_query calls averaging 4.2s
+Source: claude-code
+Project: acme-invoice-api
+Session: -
+Tool: run_query
+Evidence: Mean latency 4.2s (4187.3ms) across 23 call(s) with a recorded latency_ms, in the 7d window. p50 (median) 3.8s, p95 7.1s, max 9.4s. failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated. 2 additional call(s) to [postgres] run_query in this window had no recorded latency_ms and were excluded from the stats above (not counted, not treated as 0ms).
+Confidence: high
+Suggested action: Investigate whether [postgres] run_query's output is actually used downstream; if not, drop the call or cache the result to avoid the 4.2s penalty per call.
+
+4. 6 similar shell calls within 2 minutes in one session
+Source: codex
+Project: weekend-recipe-app
+Session: codex-2c19f0b7
+Tool: shell
+Evidence: Matched by same tool (shell) + same session + response size within 10% of each other + occurred within a 5-minute window. Call arguments are not stored (privacy-by-design) so this is a proxy signal, not confirmed duplicate calls. 6 calls in session codex-2c19f0b7 spanned 2 minutes (window threshold: 5-minute), averaging ~1,840 response chars per call.
+Confidence: medium
+Suggested action: Review whether these 6 shell calls in session codex-2c19f0b7 are intentional (e.g. polling/pagination/retry) or avoidable repeats — deduplicating avoidable repeats saves both latency and tokens.
+
+5. 2 days with cache writes exceeding cache reads
+Source: claude-code
+Project: -
+Session: -
+Tool: -
+Evidence: 2026-07-09: wrote 612,000 cache tokens, read back only 88,000 (524,000 wasted) 2026-07-12: wrote 210,000 cache tokens, read back only 71,900 (138,100 wasted)
+Confidence: medium
+Suggested action: Check whether the system prompt / tool schema changed between turns on these days — cache breakpoints only pay off when the prefix ahead of them stays stable.
+
+Warnings
+<span class="term-dim">- [codex] 2 session file(s) skipped: incomplete usage payload.</span></pre>
+      <p class="demo-note">
+        <strong>Read this as signals, not verdicts.</strong> Every finding above carries a confidence label
+        (high/medium) because the underlying detection is heuristic — nothing here is a guaranteed savings total,
+        and <code>repeated_similar_tool_calls</code> says outright that it can't see call arguments (token-meter
+        never stores them), so it's a proxy match, not proof of duplicate calls. Your own audit will surface more,
+        fewer, or different things depending on your real usage.
+      </p>
+    </section>
+
+    <section class="demo-sessions-sec">
+      <h2>Not every session is a finding</h2>
+      <p class="demo-sub">
+        An audit only surfaces sessions that cross a threshold. Most sessions — including a typical Claude Code
+        run and a typical Codex run — pass through with nothing to report, which is the point.
+      </p>
+      <div class="demo-table-wrap">
+        <table class="demo-table">
+          <thead>
+            <tr><th>Session</th><th>Source</th><th>Project</th><th>Duration</th><th>Model</th><th class="num">Cost</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>cc-4b02a919</code></td>
+              <td>Claude Code</td>
+              <td>acme-invoice-api</td>
+              <td>12 min</td>
+              <td>claude-sonnet-5</td>
+              <td class="num">$0.38</td>
+              <td class="status-ok">Normal — no findings</td>
+            </tr>
+            <tr>
+              <td><code>codex-9a71cd44</code></td>
+              <td>Codex</td>
+              <td>weekend-recipe-app</td>
+              <td>9 min</td>
+              <td>gpt-5-codex</td>
+              <td class="num">$0.21</td>
+              <td class="status-ok">Normal — no findings</td>
+            </tr>
+            <tr>
+              <td><code>cc-8f14e3a1</code></td>
+              <td>Claude Code</td>
+              <td>acme-invoice-api</td>
+              <td>47 min</td>
+              <td>claude-opus-4-8</td>
+              <td class="num">$15.92</td>
+              <td class="status-flag">Flagged — expensive_session (34% of cost)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="demo-note">All three sessions above are invented for this page — no real project, session ID, or transcript exists behind them.</p>
+    </section>
+
+    <section class="demo-json-sec">
+      <h2>JSON output</h2>
+      <p class="demo-sub">
+        <code>token-meter audit --json</code> prints this same report as one JSON document — the shape a script or
+        dashboard would consume.
+      </p>
+      <details class="demo-json-details">
+        <summary>View sample <code>AuditReport</code> JSON</summary>
+        <pre class="terminal demo-json">{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-15T09:14:22.000Z",
+  "period": { "start": "2026-07-08T00:00:00.000Z", "end": "2026-07-15T00:00:00.000Z", "days": 7 },
+  "sources": [
+    {
+      "name": "claude-code",
+      "status": "available",
+      "coverage": 1,
+      "recordsAnalyzed": 1842,
+      "recordsSkipped": 0,
+      "warnings": []
+    },
+    {
+      "name": "codex",
+      "status": "partial",
+      "coverage": 0.99,
+      "recordsAnalyzed": 414,
+      "recordsSkipped": 2,
+      "warnings": ["2 session file(s) skipped: incomplete usage payload."]
+    }
+  ],
+  "usage": {
+    "inputTokens": 3140000,
+    "outputTokens": 612400,
+    "cacheReadTokens": 8930000,
+    "cacheWriteTokens": 740000,
+    "totalTokens": 13422400,
+    "estimatedCostUsd": 46.8231
+  },
+  "summary": {
+    "findingCount": 5,
+    "costAssociatedUsd": 20.47,
+    "overallConfidence": "medium",
+    "findingsMayOverlap": false
+  },
+  "findings": [
+    {
+      "id": "a3f9c1e7b2d84067",
+      "rank": 1,
+      "type": "expensive_session",
+      "title": "Session accounted for 34% of analyzed cost",
+      "description": "This session accounted for 34% of analyzed estimated cost — $15.92 of $46.82 across 58 sessions in the 7-day window. Flagged for visibility, not as a problem.",
+      "source": "claude-code",
+      "project": "acme-invoice-api",
+      "sessionId": "cc-8f14e3a1",
+      "toolName": null,
+      "metrics": {
+        "totalUsd": 15.92,
+        "costSharePct": 34.0,
+        "events": 214,
+        "durationMs": 2820000,
+        "topModel": "claude-opus-4-8",
+        "project": "acme-invoice-api"
+      },
+      "estimatedCostUsd": 15.92,
+      "costLabel": "estimated_cost",
+      "confidence": "high",
+      "evidence": [
+        "$15.92 across 214 events over 47 min (top model: claude-opus-4-8).",
+        "That's 34.0% of $46.82 across 58 sessions in the 7-day window."
+      ],
+      "recommendations": [
+        "Review this session's transcript to see what drove the cost (model choice, tool calls, context size).",
+        "Compare it against similar sessions to see whether this cost is typical for this kind of task."
+      ],
+      "costEventIds": ["session:claude-code:cc-8f14e3a1"]
+    },
+    {
+      "id": "5e2b917c4a6f0d38",
+      "rank": 2,
+      "type": "oversized_tool_response",
+      "title": "[github] search_code responses averaging 21.4k tokens",
+      "description": "[github] search_code returns ~21,400 tokens/call on average (16 calls in 7d window; max 48,220).",
+      "source": "claude-code",
+      "project": "acme-invoice-api",
+      "sessionId": null,
+      "toolName": "search_code",
+      "metrics": {
+        "toolName": "search_code",
+        "mcpServer": "github",
+        "callCount": 16,
+        "meanTokens": 21400,
+        "maxTokens": 48220
+      },
+      "estimatedCostUsd": 2.87,
+      "costLabel": "cost_associated",
+      "confidence": "medium",
+      "evidence": [
+        "[github] search_code returns ~21,400 tokens/call on average (16 calls in 7d window; max 48,220).",
+        "Configure `fields` or `limit` on [github] search_code to reduce response size (est. 136,960 tokens/week saved)."
+      ],
+      "recommendations": [
+        "Narrow [github] search_code's query/filter scope instead of searching or listing broadly.",
+        "Lower the result limit if [github] search_code accepts one (e.g. `limit`/`max_results`/`top_k`).",
+        "Paginate through [github] search_code results across multiple calls instead of requesting them all at once.",
+        "Summarize or post-process [github] search_code's response before it enters the model context, if the full payload isn't needed downstream.",
+        "Check whether repeated [github] search_code calls return duplicate or already-seen context that could be deduplicated or cached."
+      ],
+      "costEventIds": ["tool:search_code:github"]
+    },
+    {
+      "id": "c78ad1f6e3b92047",
+      "rank": 3,
+      "type": "slow_tool",
+      "title": "[postgres] run_query calls averaging 4.2s",
+      "description": "[postgres] run_query averaged 4.2s per call over 23 call(s) in the last 7d (p50 3.8s, p95 7.1s, max 9.4s).",
+      "source": "claude-code",
+      "project": "acme-invoice-api",
+      "sessionId": null,
+      "toolName": "run_query",
+      "metrics": {
+        "toolName": "run_query",
+        "mcpServer": "postgres",
+        "meanMs": 4187.3,
+        "p50Ms": 3820,
+        "p95Ms": 7140,
+        "maxMs": 9400,
+        "callCount": 23,
+        "failureRate": null
+      },
+      "estimatedCostUsd": null,
+      "costLabel": "not_available",
+      "confidence": "high",
+      "evidence": [
+        "Mean latency 4.2s (4187.3ms) across 23 call(s) with a recorded latency_ms, in the 7d window.",
+        "p50 (median) 3.8s, p95 7.1s, max 9.4s.",
+        "failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated.",
+        "2 additional call(s) to [postgres] run_query in this window had no recorded latency_ms and were excluded from the stats above (not counted, not treated as 0ms)."
+      ],
+      "recommendations": [
+        "Investigate whether [postgres] run_query's output is actually used downstream; if not, drop the call or cache the result to avoid the 4.2s penalty per call.",
+        "If the latency looks environmental (network, cold start), check the \"postgres\" MCP server's health rather than the calling code first."
+      ],
+      "costEventIds": []
+    },
+    {
+      "id": "0f4b7d2a9c1e5836",
+      "rank": 4,
+      "type": "repeated_similar_tool_calls",
+      "title": "6 similar shell calls within 2 minutes in one session",
+      "description": "shell was called 6 times in session codex-2c19f0b7 with similarly-sized responses (avg ~1,840 chars) within a 5-minute window.",
+      "source": "codex",
+      "project": "weekend-recipe-app",
+      "sessionId": "codex-2c19f0b7",
+      "toolName": "shell",
+      "metrics": {
+        "toolName": "shell",
+        "mcpServer": null,
+        "sessionId": "codex-2c19f0b7",
+        "callCount": 6,
+        "windowMs": 300000,
+        "avgResponseChars": 1840
+      },
+      "estimatedCostUsd": null,
+      "costLabel": "not_available",
+      "confidence": "medium",
+      "evidence": [
+        "Matched by same tool (shell) + same session + response size within 10% of each other + occurred within a 5-minute window. Call arguments are not stored (privacy-by-design) so this is a proxy signal, not confirmed duplicate calls.",
+        "6 calls in session codex-2c19f0b7 spanned 2 minutes (window threshold: 5-minute), averaging ~1,840 response chars per call."
+      ],
+      "recommendations": [
+        "Review whether these 6 shell calls in session codex-2c19f0b7 are intentional (e.g. polling/pagination/retry) or avoidable repeats — deduplicating avoidable repeats saves both latency and tokens."
+      ],
+      "costEventIds": []
+    },
+    {
+      "id": "9d3c6a1f7e0b4825",
+      "rank": 5,
+      "type": "cache_inefficiency",
+      "title": "2 days with cache writes exceeding cache reads",
+      "description": "Over the last 7-day window, 2 days wrote more prompt-cache tokens than were ever read back — about 662,100 cache-write tokens that were never reused (days below the 5,000-token noise floor are excluded).",
+      "source": "claude-code",
+      "project": null,
+      "sessionId": null,
+      "toolName": null,
+      "metrics": {
+        "days": [
+          { "day": "2026-07-09", "cacheReadTokens": 88000, "cacheWriteTokens": 612000, "wastedWriteTokens": 524000 },
+          { "day": "2026-07-12", "cacheReadTokens": 71900, "cacheWriteTokens": 210000, "wastedWriteTokens": 138100 }
+        ],
+        "totalWastedWriteTokens": 662100,
+        "modelDistribution": [
+          { "model": "claude-opus-4-8", "cacheWriteTokens": 560000, "cacheReadTokens": 120000 },
+          { "model": "claude-sonnet-5", "cacheWriteTokens": 262000, "cacheReadTokens": 39900 }
+        ]
+      },
+      "estimatedCostUsd": 1.68,
+      "costLabel": "estimated_cost",
+      "confidence": "medium",
+      "evidence": [
+        "2026-07-09: wrote 612,000 cache tokens, read back only 88,000 (524,000 wasted)",
+        "2026-07-12: wrote 210,000 cache tokens, read back only 71,900 (138,100 wasted)"
+      ],
+      "recommendations": [
+        "Check whether the system prompt / tool schema changed between turns on these days — cache breakpoints only pay off when the prefix ahead of them stays stable.",
+        "Look for short-lived sessions that re-establish the same context repeatedly instead of continuing one long session that could reuse the cache."
+      ],
+      "costEventIds": []
+    }
+  ]
+}</pre>
+      </details>
+    </section>
+
+    <section class="demo-cta-sec">
+      <h2>Try it on your own history</h2>
+      <p class="demo-sub">Free, MIT-licensed, and 100% local — token-meter reads the JSONL logs Claude Code and Codex already write and never uploads anything.</p>
+      <pre class="code">npx -y @whdrnr2583/token-meter audit</pre>
+      <p style="margin: 14px 0 0;">
+        <a class="subscribe-btn" href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">View on GitHub →</a>
+        <a href="/" style="margin-left: 16px;">← Back to Token Meter home</a>
+      </p>
+    </section>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .demo-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 28px; }
+      .pill {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        padding: 5px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: var(--panel);
+      }
+
+      .demo-terminal-sec, .demo-sessions-sec, .demo-json-sec, .demo-cta-sec {
+        padding: 56px 32px;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      .demo-terminal-sec h2, .demo-sessions-sec h2, .demo-json-sec h2, .demo-cta-sec h2 {
+        text-align: center;
+        font-size: 26px;
+        margin: 0 0 12px;
+        letter-spacing: -0.01em;
+      }
+      .demo-sub { text-align: center; color: var(--muted); max-width: 700px; margin: 0 auto 28px; font-size: 15px; }
+      .demo-sub code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+      .demo-note { max-width: 720px; margin: 20px auto 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+      .demo-note code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--accent-2); }
+
+      .demo-table-wrap { overflow-x: auto; }
+      .demo-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+        min-width: 640px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .demo-table th, .demo-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+      .demo-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+      .demo-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+      .demo-table code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--accent-2); }
+      .demo-table tr:last-child td { border-bottom: none; }
+      .status-ok { color: var(--good); }
+      .status-flag { color: var(--warn); }
+
+      .demo-json-details summary {
+        cursor: pointer;
+        text-align: center;
+        color: var(--accent);
+        font-weight: 600;
+        margin-bottom: 16px;
+        list-style: none;
+      }
+      .demo-json-details summary::-webkit-details-marker { display: none; }
+      .demo-json-details summary::before { content: "▸ "; }
+      .demo-json-details[open] summary::before { content: "▾ "; }
+      .demo-json-details summary code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+      .demo-json { max-width: 900px; margin: 0 auto; max-height: 480px; overflow-y: auto; font-size: 12px; }
+
+      .demo-cta-sec { text-align: center; }
+      .demo-cta-sec pre.code { margin: 16px auto; }
+
+      @media (max-width: 600px) {
+        .demo-terminal-sec, .demo-sessions-sec, .demo-json-sec, .demo-cta-sec { padding: 40px 16px; }
+      }
+    </style>
+
+    <script>
+      document.getElementById('year').textContent = String(new Date().getFullYear());
+    </script>
+  </body>
+</html>

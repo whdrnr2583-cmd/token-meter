@@ -32,6 +32,13 @@
       "downloadUrl": "https://www.npmjs.com/package/@whdrnr2583/token-meter",
       "softwareHelp": "https://github.com/whdrnr2583-cmd/token-meter",
       "description": "Token Meter is a free, local-first dashboard and MCP server that tracks Claude Code and Codex token usage, cost, and spending — per project, model, and MCP tool. Your JSONL logs never leave your machine.",
+      "featureList": [
+        "Claude Code and Codex token usage tracking",
+        "MCP tool and server cost breakdown",
+        "USD-equivalent cost estimates",
+        "Local audit for expensive sessions, oversized MCP responses, slow tools, repeated calls, and cache inefficiencies",
+        "Local-first — no cloud upload"
+      ],
       "license": "https://opensource.org/licenses/MIT",
       "offers": [
         { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD" },
@@ -103,6 +110,44 @@
       </div>
       <pre class="code">npm install -g @whdrnr2583/token-meter
 token-meter ingest &amp;&amp; token-meter serve</pre>
+    </section>
+
+    <section class="audit">
+      <div class="audit-inner">
+        <div class="audit-text">
+          <h2>Find where your AI coding budget leaked.</h2>
+          <p class="audit-sub">
+            Audit local Claude Code and Codex logs to find expensive sessions, oversized MCP
+            responses, slow tools, repeated calls, and cache inefficiencies.
+          </p>
+          <div class="llm-box audit-box">
+            <h3>🔍 Run a free audit</h3>
+            <pre class="code">npx -y @whdrnr2583/token-meter audit</pre>
+            <p class="hint">Reads your local Claude Code + Codex history only. Nothing leaves your machine.</p>
+          </div>
+          <p class="audit-secondary"><a href="/demo/">Try the demo →</a> — see a sample report, no install required.</p>
+        </div>
+        <div class="audit-demo">
+          <pre class="terminal audit-terminal"><span class="term-cmd">$ npx -y @whdrnr2583/token-meter audit</span>
+
+TOKEN METER AUDIT — LAST 7 DAYS
+
+1. Session cost concentration in "api-gateway"
+   claude-code · confidence: high
+   1 session was 34% of analyzed cost ($18.42 of $54.20)
+
+2. Oversized responses: Read (fs-mcp)
+   claude-code · confidence: high
+   62 calls averaging 8.1k response tokens (threshold 5k)
+
+3. Slow tool: WebSearch (search-mcp)
+   claude-code · confidence: medium
+   14 calls averaging 4.9s latency (threshold 3.0s)
+
+<span class="term-dim">Findings: 3   Cost associated: ~$21.10   Confidence: medium</span></pre>
+          <p class="hint">Example output — synthetic data for illustration, not a real account.</p>
+        </div>
+      </div>
     </section>
 
     <section class="demo">

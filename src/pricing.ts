@@ -2,14 +2,20 @@
 // Single source of truth. Heuristics only; no LLM call.
 // Source: platform.claude.com models/pricing. Opus 4.6+ is $5/$25 (was $15/$75 on Opus 4.0/4.1).
 
-interface ModelPrice {
+export interface ModelPrice {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite5m: number; // ephemeral 5m (Anthropic-specific; OpenAI has no analog → 0)
 }
 
-const PRICES: Record<string, ModelPrice> = {
+// Exported (in addition to modelRates()/estimateUsd() below) so callers that
+// need to reason about the *shape* of the whole price table — e.g. the audit
+// detectors' "is this a high-cost model" tier heuristic, which ranks models
+// by their $/M output rate rather than hardcoding a model-name allowlist
+// that would go stale the moment a new model ships — can read it directly
+// instead of re-deriving/duplicating it.
+export const PRICES: Record<string, ModelPrice> = {
   // Anthropic — cacheRead = 0.1x input, cacheWrite5m = 1.25x input.
   'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
   'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },

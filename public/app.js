@@ -269,6 +269,90 @@ async function renderSubagents() {
   `;
 }
 
+// The 5 audit signal types that get a summary card (per the audit spec —
+// high_cost_model_signal findings still show up in the findings table below,
+// just without a dedicated card).
+const AUDIT_CARD_TYPES = [
+  'expensive_session',
+  'oversized_tool_response',
+  'slow_tool',
+  'repeated_similar_tool_calls',
+  'cache_inefficiency',
+];
+const AUDIT_TYPE_LABEL = {
+  expensive_session: '비싼 세션',
+  oversized_tool_response: '응답 과다',
+  slow_tool: '느린 도구',
+  repeated_similar_tool_calls: '반복 호출',
+  cache_inefficiency: '캐시 비효율',
+  high_cost_model_signal: '고비용 모델',
+};
+// Icon + word pairing so confidence is never color-only.
+const AUDIT_CONFIDENCE_LABEL = { high: '🟢 높음', medium: '🟡 보통', low: '🔴 낮음' };
+
+// Truncates free-text prose (evidence/recommendation sentences) from the
+// tail, keeping the more informative leading clause. Pairs with a `title`
+// attribute holding the full text, same accessibility pattern as the
+// project/session-id truncation below (prefix-preserving there because the
+// meaningful part of a path is its tail; here the meaningful part is the
+// start of the sentence).
+function truncateTail(s, max) {
+  return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+async function renderAudit() {
+  const data = await api(`/api/audit?days=${STATE.days}`);
+  const findings = data.findings;
+
+  const cardsWrap = $('#audit-cards');
+  cardsWrap.innerHTML = '';
+  for (const type of AUDIT_CARD_TYPES) {
+    const matches = findings.filter((f) => f.type === type);
+    if (!matches.length) continue; // no fabricated zero-card for absent types
+    const pricedTotal = matches
+      .filter((f) => f.estimatedCostUsd !== null)
+      .reduce((sum, f) => sum + f.estimatedCostUsd, 0);
+    const hasPrice = matches.some((f) => f.estimatedCostUsd !== null);
+    cardsWrap.append(
+      makeCard(AUDIT_TYPE_LABEL[type], `${matches.length}건`, hasPrice ? `연관 비용 ${fmtUsd(pricedTotal)}` : null),
+    );
+  }
+  if (!cardsWrap.children.length) {
+    cardsWrap.innerHTML = '<div class="hint">기간 내 발견된 시그널 없음</div>';
+  }
+
+  const t = $('#table-audit');
+  if (!findings.length) {
+    t.innerHTML = '<tbody><tr><td class="muted">비용·효율 시그널 없음</td></tr></tbody>';
+    return;
+  }
+  t.innerHTML = `
+    <thead><tr>
+      <th>유형</th><th>측정값</th><th>프로젝트</th><th>세션/도구</th><th>신뢰도</th><th>권장 조치</th>
+    </tr></thead>
+    <tbody>
+      ${findings.map((f) => {
+        const project = f.project ?? '-';
+        const projShort = project.length > 40 ? '…' + project.slice(-40) : project;
+        const sessionOrTool = f.sessionId ?? f.toolName ?? '-';
+        const sotShort = sessionOrTool.length > 30 ? '…' + sessionOrTool.slice(-30) : sessionOrTool;
+        const metricText = f.evidence.join(' ') || f.title;
+        const recText = f.recommendations[0] ?? '-';
+        return `
+          <tr>
+            <td>${esc(AUDIT_TYPE_LABEL[f.type] ?? f.type)}</td>
+            <td title="${esc(metricText)}">${esc(truncateTail(metricText, 140))}</td>
+            <td title="${esc(project)}">${esc(projShort)}</td>
+            <td title="${esc(sessionOrTool)}">${esc(sotShort)}</td>
+            <td>${esc(AUDIT_CONFIDENCE_LABEL[f.confidence] ?? f.confidence)}</td>
+            <td title="${esc(recText)}">${esc(truncateTail(recText, 100))}</td>
+          </tr>
+        `;
+      }).join('')}
+    </tbody>
+  `;
+}
+
 const METRIC_LABEL = {
   daily_usd: '일별 USD',
   weekly_usd: '주별 USD',
@@ -642,6 +726,7 @@ async function refreshAll() {
     renderProjects(),
     renderMcp(),
     renderSubagents(),
+    renderAudit(),
     renderSessions(),
     renderRules(),
   ]);

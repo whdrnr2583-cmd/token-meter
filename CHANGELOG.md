@@ -5,7 +5,73 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.26] — 2026-07-12
+## [0.1.27] — 2026-07-16
+
+### Added
+- **`token-meter audit` — a point-in-time findings report** (`token-meter
+  audit [--days N] [--source all|claude|codex] [--project <value>] [--limit
+  N] [--json]`). Runs six detectors over `token_events`/`tool_events` in the
+  requested window and returns a ranked, deduped `AuditReport`: expensive
+  sessions (D1), oversized tool responses (D2), slow tools (D3), repeated
+  similar tool calls (D4), cache inefficiency (D5), and a high-cost-model
+  signal (D6). Terminal output is a terse ranked list (`--limit` defaults to
+  5); `--json` prints the full `AuditReport` (`--limit` defaults to 20) for
+  piping into `jq`/dashboards. `--days` is clamped to the caller's history
+  entitlement the same way `stats`/`subagents`/`local` already are (Free: 7
+  days, Pro: 30 days).
+  - **Reuse over reimplementation.** None of the six detectors re-derive
+    aggregation SQL that already exists elsewhere: D1 (expensive_session)
+    wraps `sessions.ts`'s `topSessions()`; D2 (oversized_tool_response) wraps
+    `trim-suggestions.ts`'s `computeTrimSuggestions()` (its `LARGE_RESPONSE`
+    pattern), which gained three previously-unreturned fields (`calls`,
+    `avg_tokens`, `max_tokens`) so the detector didn't have to re-query for
+    numbers the function already had; D5 (cache_inefficiency) wraps
+    `stats.ts`'s `wasteSignals().cache_waste_days` and prices the wasted
+    cache-write tokens via `pricing.ts`'s `estimateUsd()`. D3 (slow_tool) and
+    D6 (high_cost_model_signal) run their own SQL where the wrapped
+    function's shape didn't fit (percentile queries; a duration/output
+    filter uncorrelated with `topSessions()`'s cost-sort), documented
+    per-detector as a deliberate light adaptation, not silent duplication.
+  - **Cross-detector cost dedup.** D1 and D6 can legitimately both derive
+    cost from the same session's `usd_estimate` rows; both key their
+    `costEventIds` as `session:<source>:<session_id>` so the engine can spot
+    the overlap and keep only the larger of the two `estimatedCostUsd`
+    values when summing `summary.costAssociatedUsd` — `overlapDetected`
+    surfaces as `summary.findingsMayOverlap`, so a caller knows the report's
+    findings reference some shared spend rather than N independent dollar
+    amounts. D2's `tool:<name>:<mcp_server>` keys name a *projected* weekly
+    savings estimate, not spend already incurred, and by construction never
+    collide with a `session:...` key, so projected savings are never summed
+    into the same total as real observed spend.
+  - **Known, documented limitations, not silently glossed over:**
+    - D4 (repeated_similar_tool_calls) cannot detect true argument-level
+      duplicates — `tool_events` stores no call arguments by design (see
+      `ToolEvent` in `src/types.ts`). It clusters calls by
+      `(session_id, source, tool_name, mcp_server)` plus similar timing and
+      similar `response_chars`, which is an honest same-shape/timing proxy
+      for "probably did the same/similar thing repeatedly," not proof of
+      identical inputs. Confidence is capped at `medium` for this reason and
+      every finding's evidence says so explicitly.
+    - D5 (cache_inefficiency) never fires for Codex: Codex's `usage` payload
+      never populates `cache_write_tokens` (`codex-parser.ts` hardcodes it to
+      `0`), so a Codex session can never satisfy `cache_write > cache_read`.
+      A `--source codex` audit returns zero D5 findings by design (not a bug)
+      and the report's `sources[].warnings` for `codex` explains the gap.
+    - D3 (slow_tool)'s `failureRate` metric is always `null` — `tool_events`
+      has no error/failure/status column in this schema, so the field is
+      reported as `null` rather than fabricated as `0%`.
+  - **Confidence model.** Each finding carries `high` / `medium` / `low`
+    per-detector (sample-size- or judgment-based, documented per detector);
+    `summary.overallConfidence` rolls them up via a weighted average
+    (`high=3, medium=2, low=1`) that's additionally bumped down one band
+    whenever a plain majority of findings are `low`, so a couple of
+    confident findings can't paper over an otherwise speculative report. An
+    empty report (zero findings) reports `overallConfidence: 'high'` — no
+    findings means no uncertain claims to hedge.
+  - New files: `src/audit/{engine,types,config,confidence,finding-id}.ts`,
+    `src/audit/detectors/*.ts` (six detectors), `src/audit/reporters/
+    {json,terminal}.ts`. No new database columns or tables — reads only from
+    the existing `token_events`/`tool_events` schema.
 
 ### Fixed
 - **Dynamic-workflow sub-agent JSONL files were silently dropped from

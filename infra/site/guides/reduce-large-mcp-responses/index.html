@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="How to actually fix oversized MCP tool responses in Claude Code — the exact recommendations Token Meter's oversized_tool_response audit detector and trim-suggestions.ts generate, verified against source, plus how to prove a fix worked instead of guessing." />
+    <meta name="dateModified" content="2026-07-15" />
+    <meta property="og:title" content="How to reduce oversized MCP tool responses — Token Meter" />
+    <meta property="og:description" content="The real fix menu behind token-meter audit's oversized_tool_response detector (D2) and trim-suggestions.ts — narrow scope, pagination, pre-filtering, summarizing, binary excludes — plus a before/after check that proves the fix worked." />
+    <meta property="og:url" content="https://token-meter.dev/guides/reduce-large-mcp-responses/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="How to reduce oversized MCP tool responses" />
+    <meta name="twitter:description" content="The real fix menu behind Token Meter's oversized_tool_response detector and trim-suggestions.ts, plus a before/after check that proves the fix worked." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>How to reduce oversized MCP tool responses — Token Meter</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/guides/reduce-large-mcp-responses/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "How to reduce oversized MCP tool responses",
+      "description": "The concrete recommendations behind Token Meter's oversized_tool_response audit detector and trim-suggestions.ts, and how to verify a fix actually shrank a tool's average response.",
+      "datePublished": "2026-07-15",
+      "dateModified": "2026-07-15",
+      "author": { "@type": "Organization", "name": "Token Meter" },
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "mainEntityOfPage": "https://token-meter.dev/guides/reduce-large-mcp-responses/",
+      "isPartOf": { "@type": "SoftwareApplication", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Token Meter", "item": "https://token-meter.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Guides", "item": "https://token-meter.dev/guides/" },
+        { "@type": "ListItem", "position": 3, "name": "Reduce large MCP responses", "item": "https://token-meter.dev/guides/reduce-large-mcp-responses/" }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/@whdrnr2583/token-meter" target="_blank" rel="noreferrer">npm</a>
+      </nav>
+    </header>
+
+    <section class="hero guide-hero">
+      <p class="guide-breadcrumb"><a href="/">Token Meter</a> / Guides / Reduce large MCP responses</p>
+      <h1>Cut your MCP<br /><span class="accent">responses down to size.</span></h1>
+      <p class="sub">
+        Knowing which MCP tool is heavy is only half the job — see
+        <a href="/guides/claude-code-mcp-token-usage/">which MCP server is eating your tokens</a> for that half.
+        This guide is the other half: the exact, code-verified fix menu behind Token Meter's
+        <code>oversized_tool_response</code> audit detector and <code>trim-suggestions.ts</code>, and how to prove a
+        fix actually shrank the average instead of just assuming it did.
+      </p>
+      <p class="guide-meta">Updated 2026-07-15 · Covers <code>token-meter audit</code>'s D2 detector and <code>trim-suggestions.ts</code>'s LARGE_RESPONSE / REPEATED_BINARY patterns</p>
+    </section>
+
+    <main class="guide-main">
+      <article>
+        <h2 id="problem">Problem</h2>
+        <p>
+          You've identified the tool — maybe <code>[fs-mcp] read_file</code>, maybe your own <code>Read</code> tool
+          on a directory of screenshots — and you know it's averaging thousands of tokens per call. Now what?
+          "Make it return less" isn't an action you can type into a config file. Different tools need different
+          fixes: a search tool needs a narrower query, a file reader needs field filtering, a directory full of
+          PNGs needs an exclude pattern — and Token Meter never saw the arguments those calls were made with, so
+          it can't just tell you "add <code>limit: 20</code> here." You need to know which fix applies to <em>this
+          tool's shape</em>, and then a way to confirm the average actually dropped a week later, not just a
+          feeling that it should have.
+        </p>
+
+        <h2 id="cause">Cause</h2>
+        <p>
+          Every tool call's response size is estimated at ingest (<code>response_tokens_est</code>, stored per row
+          in <code>tool_events</code>). <code>computeTrimSuggestions()</code>'s <code>LARGE_RESPONSE</code> query
+          (<code>src/trim-suggestions.ts</code>) groups those rows by <code>(tool_name, mcp_server)</code> and flags
+          any pair averaging <strong>≥5,000 tokens/call over ≥5 calls</strong> in the window. The
+          <code>oversized_tool_response</code> detector (D2 of 6 in <code>token-meter audit</code>,
+          <code>src/audit/detectors/oversized-tool-response.ts</code>) doesn't re-run that query — it calls the same
+          function and turns its <code>large_response</code>-kind results into ranked findings, so "large" means the
+          identical thing in both the free CLI audit and the Pro dashboard's trim-suggestions panel.
+        </p>
+        <p>
+          <code>src/audit/config.ts</code> also pre-declares <code>OVERSIZED_RESPONSE_PERCENTILE</code> (0.95) next
+          to the absolute floor, apparently anticipating a second, relative check — "large for what this specific
+          project usually sees," not just "large in absolute terms." That check does not exist yet:
+          <code>computeTrimSuggestions()</code> computes no percentile at all, so the detector only ever applies the
+          flat 5,000-token/5-call bar. A tool that's unusually large <em>for your project</em> but still under 5,000
+          tokens on average won't be flagged — see Limitations.
+        </p>
+        <p>
+          The reason the fixes below are "shaped like the tool's name" rather than "here's the exact argument to
+          change" is a deliberate privacy invariant: <code>tool_events</code> never stores the arguments a call was
+          made with (see <code>ToolEvent</code> in <code>src/types.ts</code>) — only <code>tool_name</code>,
+          <code>mcp_server</code>, response size/latency, and (for path-like arguments only) <code>file_ext</code>.
+          Token Meter can prove a tool runs large; it cannot see the query/limit/filter arguments that produced that
+          size, so it infers a fix from the tool's name instead of an inspected schema.
+        </p>
+
+        <h2 id="command">Command</h2>
+
+        <h3>1. Rank the candidates — <code>token-meter audit</code></h3>
+        <p>
+          Flags verified against <code>src/cli.ts</code>. <code>--days</code> defaults to 7 and is clamped to your
+          tier's history cap; <code>--limit</code> defaults to 5 in terminal mode, 20 with <code>--json</code>:
+        </p>
+        <pre class="code">token-meter audit --days 7 --source all --limit 10
+
+# machine-readable, keeps every finding's metrics field for scripting
+token-meter audit --days 7 --source all --limit 10 --json</pre>
+        <p class="hint">
+          A pair reaches <code>high</code> confidence only at ≥20 calls in the window; below that it's capped at
+          <code>medium</code>, because a couple of unusually large calls can still swing a small-sample average.
+        </p>
+
+        <h3>2. See the binary/asset-file variant the CLI doesn't surface — Pro dashboard</h3>
+        <p>
+          <code>computeTrimSuggestions()</code> actually returns three suggestion kinds —
+          <code>large_response</code>, <code>repeated_binary</code>, <code>high_latency</code> — but D2 filters to
+          only <code>large_response</code> (<code>.filter((s) => s.kind === 'large_response')</code> in
+          <code>oversized-tool-response.ts</code>). The <code>repeated_binary</code> kind — reading
+          <code>.png</code>/<code>.jpg</code>/<code>.pdf</code>/etc. files as text repeatedly — never reaches the
+          free CLI audit at all. It's only reachable through the Pro dashboard's endpoint (local machine, no cloud
+          call, gated by <code>getEntitlement()</code>):
+        </p>
+        <pre class="code">curl -s "http://localhost:8765/api/trim-suggestions?days=7"</pre>
+        <p class="hint">Requires <code>token-meter serve</code> running and a Pro/Pro+ license activated — Free returns HTTP 402.</p>
+
+        <h3>3. Verify the fix, a week later — same command, compare the numbers</h3>
+        <p>
+          Re-run the exact <code>audit</code> command from step 1 after you apply a fix. Match findings by
+          <strong><code>toolName</code> + <code>mcpServer</code></strong> in the two reports, not by
+          <code>id</code> — <code>computeFindingId()</code> (<code>src/audit/finding-id.ts</code>) hashes
+          <code>periodStart</code>/<code>periodEnd</code> into every id, so the same tool audited over two different
+          7-day windows always produces two different ids even when nothing about the tool changed. Compare
+          <code>metrics.meanTokens</code> across the two runs instead — that's the number the fix should have moved.
+        </p>
+
+        <h2 id="output">Synthetic output</h2>
+        <p><em>Fabricated example numbers below — not real user data — to show the shape of each command's output.</em></p>
+
+        <p class="guide-label"><code>token-meter audit --days 7</code> (terminal, 2 of 4 findings shown)</p>
+        <pre class="terminal">TOKEN METER AUDIT — LAST 7 DAYS
+
+Sources
+claude-code: available (2104 records analyzed, 100% of window covered)
+codex: unavailable — no data ingested yet
+
+Confirmed usage
+Tokens: 540.2k total (in 195.0k, out 76.0k, cache 269.2k)
+Estimated cost: $8.1200
+
+Efficiency signals
+Findings: 4
+Cost associated: $0.9325
+Confidence: medium
+
+1. [fs-mcp] read_file responses averaging 8k tokens
+Source: claude-code
+Project: /home/you/projects/docs-bot
+Session: -
+Tool: read_file
+Evidence: [fs-mcp] read_file returns ~8,000 tokens/call on average (62 calls in 7d window; max 21,000). Configure `fields` or `limit` on [fs-mcp] read_file to reduce response size (est. 198,400 tokens/week saved).
+Confidence: high
+Suggested action: Pre-filter [fs-mcp] read_file's output to only the fields/lines actually needed (e.g. request specific fields, or pipe through `grep`/`head`) instead of returning the full payload.
+
+2. [internal-search] search_docs responses averaging 6.2k tokens
+Source: claude-code
+Project: /home/you/projects/docs-bot
+Session: -
+Tool: search_docs
+Evidence: [internal-search] search_docs returns ~6,200 tokens/call on average (14 calls in 7d window; max 9,800). Configure `fields` or `limit` on [internal-search] search_docs to reduce response size (est. 34,720 tokens/week saved).
+Confidence: medium
+Suggested action: Narrow [internal-search] search_docs's query/filter scope instead of searching or listing broadly.</pre>
+
+        <p class="guide-label"><code>token-meter audit --days 7 --json</code> (one finding, full shape)</p>
+        <pre class="terminal">{
+  "id": "3f7a9c21b6d40e18",
+  "rank": 1,
+  "type": "oversized_tool_response",
+  "title": "[fs-mcp] read_file responses averaging 8k tokens",
+  "description": "[fs-mcp] read_file returns ~8,000 tokens/call on average (62 calls in 7d window; max 21,000). Configure `fields` or `limit` on [fs-mcp] read_file to reduce response size (est. 198,400 tokens/week saved).",
+  "source": "claude-code",
+  "project": "/home/you/projects/docs-bot",
+  "sessionId": null,
+  "toolName": "read_file",
+  "metrics": {
+    "toolName": "read_file",
+    "mcpServer": "fs-mcp",
+    "callCount": 62,
+    "meanTokens": 8000,
+    "maxTokens": 21000
+  },
+  "estimatedCostUsd": 0.7936,
+  "costLabel": "cost_associated",
+  "confidence": "high",
+  "evidence": [
+    "[fs-mcp] read_file returns ~8,000 tokens/call on average (62 calls in 7d window; max 21,000).",
+    "Configure `fields` or `limit` on [fs-mcp] read_file to reduce response size (est. 198,400 tokens/week saved)."
+  ],
+  "recommendations": [
+    "Pre-filter [fs-mcp] read_file's output to only the fields/lines actually needed (e.g. request specific fields, or pipe through `grep`/`head`) instead of returning the full payload.",
+    "Summarize or post-process [fs-mcp] read_file's response before it enters the model context, if the full payload isn't needed downstream.",
+    "Check whether repeated [fs-mcp] read_file calls return duplicate or already-seen context that could be deduplicated or cached."
+  ],
+  "costEventIds": ["tool:read_file:fs-mcp"]
+}</pre>
+
+        <p class="guide-label"><code>curl "http://localhost:8765/api/trim-suggestions?days=7"</code> (Pro, repeated_binary kind — not in CLI audit)</p>
+        <pre class="terminal">{
+  "days": 7,
+  "count": 3,
+  "suggestions": [
+    {
+      "kind": "repeated_binary",
+      "tool_name": "Read",
+      "mcp_server": null,
+      "evidence": "Read read .jpg, .png files 34 times combined in 7d (avg 3,100 tokens/call). Binary/asset files rarely need to be read as text — consider an exclude pattern.",
+      "savings_tokens_per_week": 52700,
+      "savings_usd_per_week": 0.2108,
+      "action_text": "Add an exclude glob pattern like `**/*.{jpg,png}` to Read in your Claude Code settings to avoid reading .jpg, .png files.",
+      "calls": 34,
+      "avg_tokens": 3100
+    }
+  ]
+}</pre>
+
+        <h2 id="interpretation">Interpretation</h2>
+        <ul>
+          <li>
+            <strong><code>metrics.meanTokens</code> / <code>maxTokens</code> / <code>callCount</code></strong> —
+            these are the exact three fields <code>computeTrimSuggestions()</code> already computed for its own
+            <code>evidence</code> string; D2 doesn't re-derive them, it just exposes them as separate numbers so you
+            (or a script) can compare them run-over-run without parsing prose.
+          </li>
+          <li>
+            <strong>Terminal output only ever shows <code>recommendations[0]</code>.</strong>
+            <code>formatTerminal()</code> (<code>src/audit/reporters/terminal.ts</code>) prints a single
+            "Suggested action" line from the first entry in the <code>recommendations</code> array — but
+            <code>buildRecommendations()</code> can return two to four entries (a summarize/post-process reminder
+            and a dedup check are appended after the shape-specific fix). If you only ever read the terminal
+            output, you're missing part of the advice — run <code>--json</code> and read the full
+            <code>recommendations</code> array, or open the finding on the (Pro) dashboard.
+          </li>
+          <li>
+            <strong><code>estimatedCostUsd</code> under <code>costLabel: 'cost_associated'</code></strong> is a
+            <em>projected weekly savings</em> estimate, not money already spent — it assumes a flat 40% of the
+            average response is reducible (<code>savingsTok = callsPerWeek * avg_tokens * 0.4</code>), and the
+            per-token USD rate it's multiplied by (<code>avgTokenCostPerEvent()</code>) is a single blended
+            average — <code>AVG(usd_estimate) / AVG(input+output tokens)</code> across your <em>entire</em> window,
+            every model mixed together — not the specific model this tool's caller happened to be using. Treat the
+            dollar figure as "roughly this order of magnitude," not an invoice line.
+          </li>
+          <li>
+            <strong>The <code>repeated_binary</code> curl example has no <code>max_tokens</code> key.</strong> Only
+            the <code>LARGE_RESPONSE</code> query computes <code>MAX(response_tokens_est)</code>; the
+            <code>REPEATED_BINARY</code>/<code>HIGH_LATENCY</code> branches leave it <code>undefined</code>, which
+            <code>JSON.stringify</code> simply omits — that's not a redaction, the query never computed a max for
+            that suggestion kind.
+          </li>
+        </ul>
+
+        <h2 id="actions">Actions</h2>
+        <p>
+          <code>buildRecommendations()</code> (<code>src/audit/detectors/oversized-tool-response.ts</code>) picks a
+          fix set from the tool's <em>name</em> alone — matched against two regexes — because that's the only shape
+          hint available without an argument schema. Check which bucket your flagged tool falls into first:
+        </p>
+        <ol>
+          <li>
+            <strong>Search/list-shaped</strong> — name matches <code>/search|grep|find|query|list/</code>:
+            narrow the query/filter scope instead of searching broadly; use a <code>limit</code>/
+            <code>max_results</code>/<code>top_k</code> argument if the tool exposes one; paginate across multiple
+            calls instead of requesting everything at once.
+          </li>
+          <li>
+            <strong>Read/fetch/exec-shaped</strong> — name matches
+            <code>/read|get|fetch|cat|show|view|download|export|bash|exec|run|shell|command/</code>: request
+            specific fields instead of the full payload, or pipe through <code>grep</code>/<code>head</code> where
+            the tool supports it.
+          </li>
+          <li>
+            <strong>Neither pattern matches</strong> (an opaque or custom-named MCP tool) — Token Meter doesn't
+            guess at arguments it can't confirm exist. The only recommendation you'll get is "review why this
+            returns a large payload and whether the caller can request less of it." That's the honest limit of a
+            name-only heuristic, not a missing feature.
+          </li>
+          <li>
+            <strong>Always, regardless of shape</strong> — once a tool is confirmed to run large, ask whether the
+            full response is even used downstream. If it's read once and mostly discarded, a summarization or
+            post-processing pass before the payload enters context is worth more than tuning the call itself.
+          </li>
+          <li>
+            <strong>If the tool matched either shape above</strong>, also check whether repeated calls in the same
+            session return duplicate or already-seen context — that's the
+            <code>repeated_similar_tool_calls</code> (D4) signal. Read its argument-approximation caveat in
+            Limitations before treating a D4 finding as proof of an identical call.
+          </li>
+          <li>
+            <strong>Binary/asset files</strong> (<code>REPEATED_BINARY</code>, step 2 above) — once
+            <code>file_ext</code> confirms the extensions (png/jpg/pdf/zip/mp4/font files/etc., the full list is
+            <code>BINARY_EXTENSIONS</code> in <code>trim-suggestions.ts</code>), add the exact exclude glob the
+            suggestion's <code>action_text</code> gives you (e.g. <code>**/*.{jpg,png}</code>) to your Claude Code
+            settings. If <code>file_ext</code> is <code>NULL</code> on the flagged rows (older data ingested before
+            that column existed, or a call with no path-like argument to extract an extension from), the same
+            detector falls back to a plain "called ≥10 times" heuristic on read-named tools
+            (<code>HIGH_FREQ_READ_THRESHOLD</code>) instead — re-run <code>token-meter ingest --force</code> to
+            backfill <code>file_ext</code> and get the real extension list rather than a guess.
+          </li>
+          <li>
+            <strong>Verify it worked.</strong> Re-run <code>token-meter audit</code> next week. Success looks like
+            either the <code>(toolName, mcpServer)</code> pair dropping out of the report entirely (it fell below
+            the 5-call or 5,000-token bar) or <code>metrics.meanTokens</code> being materially lower than the run
+            before. Match by tool + server, not by finding <code>id</code> — see Command, step 3.
+          </li>
+        </ol>
+
+        <h2 id="limitations">Limitations</h2>
+        <ul>
+          <li>
+            <strong>Recommendations are name-shape guesses, not verified capabilities.</strong> Token Meter has no
+            visibility into a tool's actual argument schema (that's the privacy invariant in the Cause section) —
+            "use a <code>limit</code> argument" is inferred from the tool's name looking read/list-like, not
+            confirmed by inspecting what the tool accepts. Check the tool's own documentation before assuming it
+            supports the parameter the recommendation names.
+          </li>
+          <li>
+            <strong>Only the absolute floor is enforced.</strong> <code>OVERSIZED_RESPONSE_PERCENTILE</code> (0.95)
+            is declared in <code>src/audit/config.ts</code> but never wired into any query —
+            <code>computeTrimSuggestions()</code> computes no percentile at all. A tool that's unusually large
+            <em>relative to your other tools</em> but still under the flat 5,000-token/5-call bar will not appear
+            in either the CLI audit or the Pro dashboard's trim suggestions.
+          </li>
+          <li>
+            <strong>The 40% "reducible" assumption and the blended USD rate are heuristics, not measurements.</strong>
+            Neither number is derived from what actually happened after you applied a fix — they're a flat
+            projection computed once, at query time, from the tool's current average.
+          </li>
+          <li>
+            <strong><code>repeated_binary</code> suggestions don't reach the free CLI audit.</strong> D2 filters
+            <code>computeTrimSuggestions()</code>'s output down to the <code>large_response</code> kind only; the
+            binary/asset exclude-glob suggestions currently require the Pro dashboard endpoint (Command, step 2) —
+            there's no free-tier equivalent to <code>curl .../api/trim-suggestions</code> today.
+          </li>
+          <li>
+            <strong><code>--source</code>/<code>--project</code> scoping on D2 is best-effort.</strong> The
+            underlying <code>(tool_name, mcp_server)</code> aggregate has no source/project columns of its own, so
+            a finding's reported <code>source</code>/<code>project</code> echoes what you asked for rather than
+            guaranteeing the aggregate itself is confined to it — a tool called from both Claude Code and Codex, or
+            from two different projects, can be silently mixed into one finding.
+          </li>
+          <li>
+            <strong>"Repeated calls" (D4) is an approximation, by design.</strong> There are no stored arguments to
+            compare, so <code>repeated_similar_tool_calls</code> clusters calls by same tool + timing proximity
+            (within 5 minutes) + response-size similarity (within 10%) as a proxy for "probably did something
+            similar repeatedly." It is not proof of identical calls; confidence is capped at <code>medium</code>
+            for exactly this reason.
+          </li>
+          <li>
+            <strong>Codex tool calls never carry MCP-server attribution.</strong> <code>codex-parser.ts</code>
+            hardcodes <code>mcp_server: null</code> for every Codex tool event, so a <code>--source codex</code>
+            audit can still flag an individual tool as oversized, but never scoped to a specific MCP server the way
+            a Claude Code finding is — everything Codex-side collapses to "this tool name," MCP or built-in
+            indistinguishable.
+          </li>
+          <li>
+            <strong>Finding <code>id</code>s are not stable across two audits taken at different times.</strong>
+            <code>computeFindingId()</code> hashes <code>periodStart</code>/<code>periodEnd</code> into the id, so
+            re-running the exact same command a week later produces a new id for the same tool even if nothing
+            changed. Diff by <code>toolName</code> + <code>metrics.mcpServer</code>, not by <code>id</code>.
+          </li>
+        </ul>
+
+        <h2 id="related">Related guides</h2>
+        <ul class="guide-links">
+          <li><a href="/guides/find-expensive-claude-code-sessions/">Find your most expensive Claude Code sessions</a></li>
+          <li><a href="/guides/claude-code-mcp-token-usage/">Which MCP server is eating your Claude Code tokens?</a></li>
+          <li><a href="/guides/find-slow-mcp-tools/">Find the MCP tools slowing your sessions down</a></li>
+          <li><a href="/guides/codex-token-cost/">Track Codex token cost alongside Claude Code</a></li>
+        </ul>
+
+        <p class="guide-cta">
+          <a href="/">← Token Meter home</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">Source on GitHub</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/mcp-server.md" target="_blank" rel="noreferrer">Full MCP server docs</a>
+        </p>
+      </article>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .guide-hero { padding-bottom: 32px; }
+      .guide-breadcrumb { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+      .guide-breadcrumb a { color: var(--muted); }
+      .guide-meta { color: var(--muted); font-size: 13px; margin: 0; }
+      .guide-hero code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+
+      .guide-main { max-width: 760px; margin: 0 auto; padding: 0 32px 72px; }
+      .guide-main h2 { font-size: 22px; margin: 48px 0 16px; letter-spacing: -0.01em; scroll-margin-top: 80px; }
+      .guide-main h2:first-child { margin-top: 0; }
+      .guide-main h3 { font-size: 16px; margin: 28px 0 10px; color: var(--text); }
+      .guide-main p, .guide-main li { color: var(--muted); line-height: 1.7; }
+      .guide-main strong { color: var(--text); }
+      .guide-main ul, .guide-main ol { padding-left: 22px; margin: 0 0 16px; }
+      .guide-main li { margin-bottom: 10px; }
+      .guide-main code {
+        background: var(--panel-2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--accent-2);
+      }
+      .guide-main .code {
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 12px 0 16px;
+      }
+      .guide-main .terminal {
+        max-width: 100%;
+        margin: 12px 0 20px;
+        font-size: 12.5px;
+      }
+      .guide-label { color: var(--text); font-size: 13px; font-weight: 600; margin: 24px 0 4px; }
+      .guide-label code { color: var(--accent-2); }
+      .guide-links { list-style: none; padding: 0; margin: 0 0 24px; }
+      .guide-links li {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+      }
+      .guide-links a { color: var(--text); font-weight: 600; }
+      .guide-cta { color: var(--muted); font-size: 14px; margin-top: 40px; }
+
+      @media (max-width: 600px) {
+        .guide-main { padding: 0 16px 48px; }
+      }
+    </style>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>

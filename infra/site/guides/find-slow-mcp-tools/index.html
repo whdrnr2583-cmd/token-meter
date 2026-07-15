@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Find which MCP tool or server is adding latency to your Claude Code or Codex sessions using token-meter audit's slow_tool detector — mean, p50, p95, and max latency, explained with real commands and honest limitations." />
+    <meta name="dateModified" content="2026-07-15" />
+    <meta property="og:title" content="Which MCP tool is actually slow? — Token Meter" />
+    <meta property="og:description" content="token-meter audit's slow_tool detector flags tool+MCP-server pairs averaging 3s+ over 5+ calls, with mean/p50/p95/max latency — read the numbers to tell an occasional outlier from a uniformly slow tool." />
+    <meta property="og:url" content="https://token-meter.dev/guides/find-slow-mcp-tools/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Which MCP tool is actually slow?" />
+    <meta name="twitter:description" content="token-meter audit's slow_tool detector: mean, p50, p95, max latency per tool+MCP-server pair — how to tell an outlier from a uniformly slow tool." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>Which MCP tool is actually slow? — Token Meter</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/guides/find-slow-mcp-tools/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "Which MCP tool is actually slow?",
+      "description": "How to find which MCP tool or server is adding latency to a Claude Code or Codex session, using token-meter audit's slow_tool (D3) detector — mean, p50, p95, and max latency per tool+MCP-server pair.",
+      "datePublished": "2026-07-15",
+      "dateModified": "2026-07-15",
+      "author": { "@type": "Organization", "name": "Token Meter" },
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "mainEntityOfPage": "https://token-meter.dev/guides/find-slow-mcp-tools/",
+      "isPartOf": { "@type": "SoftwareApplication", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Token Meter", "item": "https://token-meter.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Guides", "item": "https://token-meter.dev/guides/" },
+        { "@type": "ListItem", "position": 3, "name": "Slow MCP tools", "item": "https://token-meter.dev/guides/find-slow-mcp-tools/" }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/@whdrnr2583/token-meter" target="_blank" rel="noreferrer">npm</a>
+      </nav>
+    </header>
+
+    <section class="hero guide-hero">
+      <p class="guide-breadcrumb"><a href="/">Token Meter</a> / Guides / Slow MCP tools</p>
+      <h1>Which MCP tool is<br /><span class="accent">actually slow?</span></h1>
+      <p class="sub">
+        Claude Code and Codex both stamp every tool call with a <code>latency_ms</code> at ingest time, but nothing
+        rolls that up for you by default — a chronically slow tool just blends into the pace of a session. The
+        <code>audit</code> command's <code>slow_tool</code> detector (D3) groups calls by tool, MCP server, source,
+        and project, and reports mean, p50, p95, and max latency for each group — so you can tell "this tool has a
+        few catastrophic outliers" from "this tool is just slow, every single time."
+      </p>
+      <p class="guide-meta">Updated 2026-07-15 · Uses the <code>token-meter audit</code> command's <code>slow_tool</code> (D3) detector</p>
+    </section>
+
+    <main class="guide-main">
+      <article>
+        <h2 id="problem">Problem</h2>
+        <p>
+          A session drags — there's a multi-second pause after a tool call, over and over, and it's slowing down
+          how fast you can iterate. Is it the model thinking? A specific MCP server having a bad day? A built-in
+          tool (<code>Bash</code>, <code>Read</code>) doing something heavy? You want a name and a number —
+          "<code>[playwright] browser_navigate</code> is averaging 4.2 seconds a call" — not a vague sense that
+          "MCP feels slow today." And once you have a name, you want to know whether it's worth fixing at all: a
+          tool that's slow on every call is a different problem than a tool that's fast 95% of the time and
+          occasionally spikes.
+        </p>
+
+        <h2 id="cause">Cause</h2>
+        <p>
+          <code>tool_events.latency_ms</code> is captured at parse time by pairing a <code>tool_use</code> block
+          with its matching <code>tool_result</code> and taking the timestamp delta — <code>src/parser.ts</code>
+          for Claude Code, <code>src/codex-parser.ts</code> for Codex (both compute
+          <code>Math.max(0, resultTs - callTs)</code>). Both sources populate it the same way, so this isn't a
+          Claude Code-only signal the way some other audit findings are. But a per-call number sitting in SQLite
+          isn't a finding — nothing groups it, averages it, or tells you when it crosses a line worth caring about.
+        </p>
+        <p>
+          That's what the <code>slow_tool</code> detector (D3 of the audit's six) does: it groups
+          <code>tool_events</code> by <code>(tool_name, mcp_server, source, project)</code> and flags a group only
+          once it clears <em>two</em> bars together — mean latency <strong>≥3,000ms</strong> and
+          <strong>≥5 calls</strong> with a recorded latency in the window
+          (<code>SLOW_TOOL_LATENCY_MS_THRESHOLD</code> / <code>SLOW_TOOL_MIN_CALLS</code> in
+          <code>src/audit/config.ts</code>). Four slow calls, or twenty calls averaging 2.9 seconds, produce
+          nothing — not enough evidence either way. That bar is deliberately identical to the older
+          <code>HIGH_LATENCY</code> pattern in <code>trim-suggestions.ts</code> (the Pro auto-trim-suggestions
+          feature), so "slow" means the same 3-second/5-call thing whether you're reading a trim suggestion or an
+          audit finding.
+        </p>
+        <p>
+          Once a group qualifies, p50 and p95 are fetched directly from SQLite as
+          <code>ORDER BY latency_ms ASC LIMIT 1 OFFSET &lt;rank&gt;</code> (the nearest-rank method) rather than
+          pulling every row for a busy tool into JS and sorting there — one bounded row per percentile no matter
+          how many calls are in the group. Calls with no recorded <code>latency_ms</code> (<code>NULL</code>) are
+          excluded from mean/p50/p95/max entirely — never treated as <code>0ms</code> — and counted separately as
+          <code>callsMissingLatency</code>, so the exclusion stays visible in the finding's evidence instead of
+          silently shrinking the sample. And <code>failure_rate</code> is always <code>null</code>: this schema has
+          no error/failure/status column on <code>tool_events</code> at all, so the field is reported as
+          "unavailable," never faked as <code>0%</code>.
+        </p>
+
+        <h2 id="command">Command</h2>
+        <p>
+          Prerequisite: <code>token-meter ingest</code> must have run at least once — <code>audit</code> reads the
+          same local SQLite DB (<code>~/.tokenpulse/usage.db</code>) every other command uses. Nothing below calls
+          out to Anthropic, OpenAI, or any MCP server.
+        </p>
+
+        <h3>1. Run the audit</h3>
+        <pre class="code">npx -y @whdrnr2583/token-meter audit --days 7</pre>
+        <p class="hint">
+          <code>--days</code> defaults to 7 and is clamped to your tier's history cap (7d Free, 30d Pro, unlimited
+          Pro+) — a clamp warning prints to stderr if you asked for more than you're entitled to.
+          <code>--limit</code> defaults to 5 in terminal mode, 20 in <code>--json</code> mode.
+        </p>
+
+        <h3>2. Make sure a slow_tool finding isn't hiding behind cost-bearing ones</h3>
+        <p>
+          <code>slow_tool</code> never carries a dollar figure (<code>costLabel: 'not_available'</code>,
+          <code>estimatedCostUsd: null</code> — latency has no direct cost in this schema). The audit engine's
+          cross-detector ranking sorts every cost-bearing finding first, by cost descending, and only then the
+          no-cost findings — so a genuinely bad latency finding can sit past the default terminal <code>--limit 5</code>
+          behind three cheaper-but-priced findings. Raise the limit, or go straight to JSON and filter by type:
+        </p>
+        <pre class="code">token-meter audit --days 7 --limit 20
+
+# machine-readable — filter to just the latency findings (needs jq)
+token-meter audit --days 7 --limit 20 --json \
+  | jq '.findings[] | select(.type == "slow_tool")'</pre>
+
+        <h3>3. Scope to one MCP server, source, or project</h3>
+        <p>
+          <code>--source all|claude|codex</code> and <code>--project &lt;value&gt;</code> narrow the underlying
+          query itself for this detector — its <code>GROUP BY</code> already includes <code>source</code> and
+          <code>project</code>, so scoping actually confines which calls feed each group (unlike
+          <code>oversized_tool_response</code>, whose aggregate has no source/project columns and just echoes back
+          whatever you asked for — see the <a href="/guides/claude-code-mcp-token-usage/">MCP token usage guide</a>
+          for that caveat).
+        </p>
+        <pre class="code">token-meter audit --days 7 --source claude --project /Users/you/repo --json \
+  | jq '.findings[] | select(.type == "slow_tool")'</pre>
+
+        <h2 id="output">Synthetic output</h2>
+        <p><em>Fabricated example numbers below — not real user data — to show the shape of each command's output.</em></p>
+
+        <p class="guide-label"><code>token-meter audit --days 14</code> (terminal, one finding shown — note it's ranked below cost-bearing findings)</p>
+        <pre class="terminal">5. [playwright] browser_navigate calls averaging 4.2s
+Source: claude-code
+Project: /Users/example/mcp-agent-demo
+Session: -
+Tool: browser_navigate
+Evidence: Mean latency 4.2s (4,187.6ms) across 42 call(s) with a recorded latency_ms, in the 14d window. p50 (median) 1.1s, p95 18.3s, max 22.0s. failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated. 3 additional call(s) to [playwright] browser_navigate in this window had no recorded latency_ms and were excluded from the stats above (not counted, not treated as 0ms).
+Confidence: high
+Suggested action: Investigate whether [playwright] browser_navigate's output is actually used downstream; if not, drop the call or cache the result to avoid the 4.2s penalty per call.</pre>
+
+        <p class="guide-label"><code>token-meter audit --days 14 --json | jq '.findings[] | select(.type == "slow_tool")'</code></p>
+        <pre class="terminal">{
+  "id": "d3a1f70b2c9e4411",
+  "rank": 5,
+  "type": "slow_tool",
+  "title": "[playwright] browser_navigate calls averaging 4.2s",
+  "description": "[playwright] browser_navigate averaged 4.2s per call over 42 call(s) in the last 14d (p50 1.1s, p95 18.3s, max 22.0s).",
+  "source": "claude-code",
+  "project": "/Users/example/mcp-agent-demo",
+  "sessionId": null,
+  "toolName": "browser_navigate",
+  "metrics": {
+    "toolName": "browser_navigate",
+    "mcpServer": "playwright",
+    "meanMs": 4187.6,
+    "p50Ms": 1120,
+    "p95Ms": 18340,
+    "maxMs": 21980,
+    "callCount": 42,
+    "failureRate": null
+  },
+  "estimatedCostUsd": null,
+  "costLabel": "not_available",
+  "confidence": "high",
+  "evidence": [
+    "Mean latency 4.2s (4,187.6ms) across 42 call(s) with a recorded latency_ms, in the 14d window.",
+    "p50 (median) 1.1s, p95 18.3s, max 22.0s.",
+    "failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated.",
+    "3 additional call(s) to [playwright] browser_navigate in this window had no recorded latency_ms and were excluded from the stats above (not counted, not treated as 0ms)."
+  ],
+  "recommendations": [
+    "Investigate whether [playwright] browser_navigate's output is actually used downstream; if not, drop the call or cache the result to avoid the 4.2s penalty per call.",
+    "If the latency looks environmental (network, cold start), check the \"playwright\" MCP server's health rather than the calling code first."
+  ],
+  "costEventIds": []
+}
+{
+  "id": "9f2b6a0d1c7e3355",
+  "rank": 6,
+  "type": "slow_tool",
+  "title": "[notion] notion_search calls averaging 3.8s",
+  "description": "[notion] notion_search averaged 3.8s per call over 19 call(s) in the last 14d (p50 3.8s, p95 4.1s, max 4.3s).",
+  "source": "claude-code",
+  "project": "/Users/example/mcp-agent-demo",
+  "sessionId": null,
+  "toolName": "notion_search",
+  "metrics": {
+    "toolName": "notion_search",
+    "mcpServer": "notion",
+    "meanMs": 3812.4,
+    "p50Ms": 3760,
+    "p95Ms": 4090,
+    "maxMs": 4310,
+    "callCount": 19,
+    "failureRate": null
+  },
+  "estimatedCostUsd": null,
+  "costLabel": "not_available",
+  "confidence": "medium",
+  "evidence": [
+    "Mean latency 3.8s (3,812.4ms) across 19 call(s) with a recorded latency_ms, in the 14d window.",
+    "p50 (median) 3.8s, p95 4.1s, max 4.3s.",
+    "failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated."
+  ],
+  "recommendations": [
+    "Investigate whether [notion] notion_search's output is actually used downstream; if not, drop the call or cache the result to avoid the 3.8s penalty per call.",
+    "If the latency looks environmental (network, cold start), check the \"notion\" MCP server's health rather than the calling code first."
+  ],
+  "costEventIds": []
+}</pre>
+
+        <h2 id="interpretation">Interpretation</h2>
+        <ul>
+          <li>
+            <strong><code>mean</code></strong> — the average across every call with a recorded latency in the
+            window. Easy to skew: a handful of very slow calls can drag the mean well above what a "typical" call
+            actually feels like.
+          </li>
+          <li>
+            <strong><code>p50</code> (median)</strong> — the midpoint call. Half of all calls were faster than
+            this, half slower. This is what a typical call actually feels like, immune to a small number of
+            extreme values.
+          </li>
+          <li>
+            <strong><code>p95</code></strong> — 95% of calls were at or faster than this. If <code>p95</code> is
+            close to <code>mean</code>, the slowness isn't rare — most calls are paying it. If <code>p95</code> is
+            far above <code>p50</code> but still well below <code>max</code>, a meaningful minority (not just one
+            call) are the slow ones.
+          </li>
+          <li>
+            <strong><code>max</code></strong> — the single worst call in the window. On its own it tells you
+            almost nothing about the pattern — it's one data point. Read it next to <code>p95</code>: if they're
+            close, several calls are that bad; if <code>max</code> towers over <code>p95</code>, it's likely one
+            pathological event (a timeout, a cold start, a network blip) rather than a trend.
+          </li>
+        </ul>
+        <p>
+          The two synthetic findings above are the same shape of problem — both cross the 3s/5-call bar — but read
+          very differently once you line up all four numbers:
+        </p>
+        <ul>
+          <li>
+            <strong><code>[playwright] browser_navigate</code></strong>: mean 4.2s but p50 only 1.1s — most calls
+            are fast. p95 jumps to 18.3s and max is 22.0s, both far above p50. That gap is the signature of
+            <strong>occasional outliers</strong>: a small share of calls (page loads that hung, a flaky
+            navigation, a cold browser context) are dragging the mean up, while the bulk of calls are perfectly
+            reasonable. Fixing "the tool" here is the wrong frame — the question is what's different about the
+            slow minority.
+          </li>
+          <li>
+            <strong><code>[notion] notion_search</code></strong>: mean 3.8s, p50 3.8s, p95 4.1s, max 4.3s — every
+            number sits in a tight band. That's <strong>uniformly slow</strong>: there's no outlier to chase,
+            because every call pays roughly the same tax. This is a structural cost of the tool itself (a slow
+            API round-trip, no server-side caching), not an anomaly.
+          </li>
+        </ul>
+        <p>
+          <strong>Confidence</strong> reflects sample size only — <code>high</code> at ≥20 calls with a recorded
+          latency, <code>medium</code> below that (the audit's <code>HAVING</code> clause already filters out
+          anything under 5 calls, so nothing below the 5-call floor reaches this metric at all). It says nothing
+          about whether the pattern is outlier-driven or uniform — that judgment is entirely in reading mean
+          against p50/p95/max yourself, the way the two examples above do.
+        </p>
+
+        <h2 id="actions">Actions</h2>
+        <p>
+          This is a spotlight, not an accusation (see <code>docs/audit.md</code>) — a slow call that isn't on the
+          critical path, or that ran while other work proceeded, may not have cost you any real time at all. Read
+          the numbers, then decide.
+        </p>
+        <ol>
+          <li>
+            <strong>Outlier pattern (mean ≫ p50):</strong> don't treat the tool as broken — treat the slow minority
+            as a separate question. Narrow <code>--days</code> to the window right around when the session felt
+            slow, and cross-reference the timestamp against your own Claude Code/Codex transcript for that session
+            (Token Meter never stores call arguments, so it can tell you "this tool+server was slow," never "on
+            this specific query" — see Limitations). Common culprits: the first call of a session (cold
+            start/connection setup), a specific target (one flaky page, one large repo), or a transient network
+            condition.
+          </li>
+          <li>
+            <strong>Uniform pattern (mean ≈ p50 ≈ p95):</strong> treat it as a fixed cost, not an anomaly to
+            debug. Options: cache the result if the call is idempotent and repeated, reduce how often it's called
+            (check whether the audit's <code>repeated_similar_tool_calls</code> / D4 finding also fired for the
+            same tool+session), switch to a lighter equivalent tool or narrower query, or accept the round-trip if
+            what it returns is worth the wait.
+          </li>
+          <li>
+            <strong>If <code>mcp_server</code> is set</strong>, the finding's own recommendation is to check that
+            server's health (rate limits, region, cold-start behavior) before assuming your own code or prompt is
+            at fault — the latency lives on their side of the call.
+          </li>
+          <li>
+            <strong>If <code>mcp_server</code> is <code>null</code></strong>, the slow tool is one of Claude
+            Code's/Codex's own built-ins (<code>Bash</code>, <code>Read</code>, …) — the latency is local
+            (a slow command, a large file, a slow filesystem), not a remote dependency, so look at what the call
+            was actually doing rather than an MCP server's health.
+          </li>
+          <li>
+            <strong>Ask whether the output is used at all.</strong> If a slow tool's result is read once and
+            mostly ignored downstream, dropping the call outright removes both the latency and the tokens it cost
+            — often the cheapest fix available.
+          </li>
+          <li>
+            <strong>Re-run periodically.</strong> The 3s/5-call bar is fixed, not adaptive — a tool creeping
+            toward 2,900ms won't show up until it actually crosses the line, so a one-time check doesn't catch a
+            slow regression introduced later.
+          </li>
+        </ol>
+
+        <h2 id="limitations">Limitations</h2>
+        <ul>
+          <li>
+            <strong><code>failure_rate</code> is always <code>null</code>.</strong> <code>tool_events</code> has
+            no error/failure/status column in this schema at all — there's no way to know from this data whether a
+            slow call also failed, or whether some of a group's calls errored out entirely. This is called out
+            explicitly in every finding's evidence rather than defaulted to a misleading <code>0%</code>.
+          </li>
+          <li>
+            <strong>No call arguments are ever stored.</strong> <code>tool_events</code> deliberately never
+            captures what a tool was called <em>with</em> (see <code>ToolEvent</code> in <code>src/types.ts</code>)
+            — this is a privacy invariant, not a gap waiting to be filled. <code>slow_tool</code> can tell you
+            "<code>browser_navigate</code> against the <code>playwright</code> server was slow," never "it was
+            slow because it hit this specific URL." If you need that level of detail, you have to go find it
+            yourself in the raw session transcript, using the flagged time window as a starting point.
+          </li>
+          <li>
+            <strong>No sense of the critical path.</strong> This schema has no concept of whether a given tool
+            call blocked you waiting at the screen or ran quietly alongside other work (a background sub-agent
+            call, for instance). A "slow" finding measures wall-clock duration of the call itself, not its actual
+            impact on how long you waited.
+          </li>
+          <li>
+            <strong>A group needs ≥5 calls with a recorded latency to appear at all.</strong> One catastrophic
+            60-second call sitting among two or three fast ones for the same tool won't surface here — the sample
+            is too small for the detector's own confidence bar, by design. You'd have to notice that one manually
+            (a session that felt oddly slow with no matching finding is a hint to look closer, not evidence
+            nothing happened).
+          </li>
+          <li>
+            <strong>Never carries a cost, which affects default visibility.</strong> <code>costLabel</code> is
+            always <code>'not_available'</code> — latency has no direct dollar figure in this schema — so
+            <code>slow_tool</code> findings always rank after every cost-bearing finding in the audit's
+            cross-detector ranking. See the Command section above for the <code>--limit</code>/<code>--json</code>
+            workaround; the default terminal view alone can genuinely miss one.
+          </li>
+          <li>
+            <strong>Not a Codex-vs-Claude-Code gap, unlike some other detectors.</strong> Worth saying explicitly
+            because it's easy to assume otherwise: the <code>cache_inefficiency</code> detector (D5) never fires
+            for Codex because Codex's <code>usage</code> payload never reports <code>cache_write_tokens</code>.
+            <code>slow_tool</code> has no equivalent gap — <code>codex-parser.ts</code> computes
+            <code>latency_ms</code> the same way <code>parser.ts</code> does for Claude Code, so this detector
+            fires equally for both sources.
+          </li>
+        </ul>
+
+        <h2 id="related">Related guides</h2>
+        <ul class="guide-links">
+          <li><a href="/guides/find-expensive-claude-code-sessions/">Find your most expensive Claude Code sessions</a></li>
+          <li><a href="/guides/claude-code-mcp-token-usage/">Which MCP server is eating your Claude Code tokens?</a></li>
+          <li><a href="/guides/reduce-large-mcp-responses/">Reduce oversized MCP tool responses</a></li>
+          <li><a href="/guides/codex-token-cost/">Track Codex token cost alongside Claude Code</a></li>
+        </ul>
+
+        <p class="guide-cta">
+          <a href="/">← Token Meter home</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">Source on GitHub</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/audit.md" target="_blank" rel="noreferrer">Full audit docs</a>
+        </p>
+      </article>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .guide-hero { padding-bottom: 32px; }
+      .guide-breadcrumb { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+      .guide-breadcrumb a { color: var(--muted); }
+      .guide-meta { color: var(--muted); font-size: 13px; margin: 0; }
+      .guide-hero code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+
+      .guide-main { max-width: 760px; margin: 0 auto; padding: 0 32px 72px; }
+      .guide-main h2 { font-size: 22px; margin: 48px 0 16px; letter-spacing: -0.01em; scroll-margin-top: 80px; }
+      .guide-main h2:first-child { margin-top: 0; }
+      .guide-main h3 { font-size: 16px; margin: 28px 0 10px; color: var(--text); }
+      .guide-main p, .guide-main li { color: var(--muted); line-height: 1.7; }
+      .guide-main strong { color: var(--text); }
+      .guide-main ul, .guide-main ol { padding-left: 22px; margin: 0 0 16px; }
+      .guide-main li { margin-bottom: 10px; }
+      .guide-main code {
+        background: var(--panel-2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--accent-2);
+      }
+      .guide-main .code {
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 12px 0 16px;
+      }
+      .guide-main .terminal {
+        max-width: 100%;
+        margin: 12px 0 20px;
+        font-size: 12.5px;
+      }
+      .guide-label { color: var(--text); font-size: 13px; font-weight: 600; margin: 24px 0 4px; }
+      .guide-label code { color: var(--accent-2); }
+      .guide-links { list-style: none; padding: 0; margin: 0 0 24px; }
+      .guide-links li {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+      }
+      .guide-links a { color: var(--text); font-weight: 600; }
+      .guide-cta { color: var(--muted); font-size: 14px; margin-top: 40px; }
+
+      @media (max-width: 600px) {
+        .guide-main { padding: 0 16px 48px; }
+      }
+    </style>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>

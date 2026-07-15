@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Track OpenAI Codex token cost with Token Meter, including the Codex-specific gaps this project has actually shipped fixes for: WSL/Windows session-directory discovery, per-turn model-switch pricing, and tool-call pairing. Real commands, honest limitations." />
+    <meta name="dateModified" content="2026-07-15" />
+    <meta property="og:title" content="How to track Codex token cost — Token Meter" />
+    <meta property="og:description" content="token-meter ingest --force, token-meter audit --source codex, and usage_summary scope=codex: three real ways to see Codex spend, plus the WSL/Windows discovery gap and model-switch pricing bug this project actually fixed." />
+    <meta property="og:url" content="https://token-meter.dev/guides/codex-token-cost/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://token-meter.dev/logo-transparent.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="How to track Codex token cost" />
+    <meta name="twitter:description" content="token-meter ingest --force, audit --source codex, and usage_summary scope=codex — with the WSL/Windows discovery gap and model-switch pricing bug this project actually shipped fixes for." />
+    <meta name="twitter:image" content="https://token-meter.dev/logo-transparent.png" />
+    <title>How to track Codex (OpenAI) token cost — Token Meter</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/logo-transparent.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/logo-transparent.png" />
+    <link rel="canonical" href="https://token-meter.dev/guides/codex-token-cost/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "How to track Codex token cost with Token Meter",
+      "description": "How to track OpenAI Codex token cost and usage patterns with Token Meter, including the WSL/Windows session-directory discovery gap, per-turn model-switch pricing, and tool-call pairing this project has actually shipped fixes for.",
+      "datePublished": "2026-07-15",
+      "dateModified": "2026-07-15",
+      "author": { "@type": "Organization", "name": "Token Meter" },
+      "publisher": { "@type": "Organization", "name": "Token Meter", "url": "https://token-meter.dev" },
+      "mainEntityOfPage": "https://token-meter.dev/guides/codex-token-cost/",
+      "isPartOf": { "@type": "SoftwareApplication", "name": "Token Meter", "url": "https://token-meter.dev" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Token Meter", "item": "https://token-meter.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Guides", "item": "https://token-meter.dev/guides/" },
+        { "@type": "ListItem", "position": 3, "name": "Codex token cost", "item": "https://token-meter.dev/guides/codex-token-cost/" }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/logo.svg" alt="" width="22" height="22" class="brand-logo" />Token Meter</a>
+      <nav>
+        <a href="/#features">Features</a>
+        <a href="/#connect">Connect (MCP)</a>
+        <a href="/calculator">Calculator</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/@whdrnr2583/token-meter" target="_blank" rel="noreferrer">npm</a>
+      </nav>
+    </header>
+
+    <section class="hero guide-hero">
+      <p class="guide-breadcrumb"><a href="/">Token Meter</a> / Guides / Codex token cost</p>
+      <h1>Track your<br /><span class="accent">Codex spend.</span></h1>
+      <p class="sub">
+        Token Meter parses <code>~/.codex/sessions/**/*.jsonl</code> the same way it parses Claude Code's
+        logs, but Codex's transcript format is different enough that three real bugs shipped and got fixed
+        against it: sessions invisible on a WSL machine, turns billed at the wrong model after a mid-session
+        switch, and tool calls that were silently dropped entirely. This guide covers what's tracked, what
+        still isn't, and the exact commands to check your own data.
+      </p>
+      <p class="guide-meta">Updated 2026-07-15 · Codex tool events, WSL/Windows discovery, and per-turn pricing shipped in 0.1.26; <code>token-meter audit</code> is the newest feature, listed under Unreleased in CHANGELOG.md as of this writing.</p>
+    </section>
+
+    <main class="guide-main">
+      <article>
+        <h2 id="problem">Problem</h2>
+        <p>
+          Three separate ways Codex tracking can look broken, each with a real, shipped cause:
+        </p>
+        <ul>
+          <li>
+            <strong>Codex usage shows $0</strong> even though you've been running <code>codex</code> daily —
+            usually on a WSL machine where Codex was only ever launched from a plain Windows terminal
+            (cmd/PowerShell), not from inside WSL.
+          </li>
+          <li>
+            <strong>The dollar total looks wrong</strong> for a session where you know you switched Codex
+            models mid-way (e.g. from a lighter variant to <code>gpt-5.4</code> for a harder turn) — the cost
+            doesn't move the way you'd expect from the switch.
+          </li>
+          <li>
+            <strong>Codex sessions never show up in the MCP/tool breakdown</strong> — <code>token-meter
+            stats</code>'s "MCP &amp; tools" table and the <code>session_tools</code> MCP tool look empty or
+            Claude-Code-only, even for a Codex session you know called several tools.
+          </li>
+        </ul>
+
+        <h2 id="cause">Cause</h2>
+        <p>
+          Each of these traces to a specific, documented gap between how Codex writes its JSONL logs and how
+          Claude Code does — not a generic "Codex support is worse" hand-wave:
+        </p>
+        <h3>1. Session directory discovery (WSL/Windows)</h3>
+        <p>
+          <code>codexSessionsDir()</code> resolves to <code>~/.codex/sessions</code> under Node's
+          <code>homedir()</code>. On native Windows or macOS/Linux that's the only place Codex writes, so it's
+          fine. On <strong>WSL</strong>, though, a Codex CLI that was only ever run from a plain Windows
+          terminal writes to <code>/mnt/c/Users/&lt;profile&gt;/.codex/sessions</code> — a path a WSL-side scan
+          of <code>~/.codex/sessions</code> never sees, so every real session there ingested $0, silently.
+          <code>codexSessionsDirs()</code> (<code>src/codex-ingest.ts</code>) now mirrors the same fallback
+          Claude Code project discovery already used: it scans the WSL home path <em>and</em> every
+          <code>/mnt/c/Users/&lt;profile&gt;/.codex/sessions</code> that exists, via
+          <code>scanWindowsUserDirs()</code> in <code>src/platform.ts</code>. That helper deliberately checks
+          which directories actually exist rather than guessing a Windows username — <code>USERPROFILE</code>
+          is often unset under WSL, and the first entry under <code>/mnt/c/Users</code> can be a sandbox/system
+          account (e.g. <code>CodexSandboxOffline</code>), not the real user.
+        </p>
+        <h3>2. Per-turn model-switch pricing</h3>
+        <p>
+          Codex's JSONL log includes a <code>turn_context</code> entry ahead of each turn, carrying the model
+          actually serving that turn in <code>payload.model</code>. Before this was fixed,
+          <code>codex-parser.ts</code> read the model once from <code>session_meta</code>'s
+          <code>base_instructions</code> text at the top of the file and billed <em>every</em>
+          <code>token_count</code> event in that session at that one rate — so a session that switched models
+          mid-way (e.g. <code>gpt-5.3-codex-spark</code> → <code>gpt-5.4</code>) had every turn after the
+          switch priced at the stale model's rate. The parser now tracks a <code>currentModel</code> variable,
+          updated from the latest <code>turn_context.payload.model</code> seen, and re-reads it before pricing
+          every <code>token_count</code> event — so pre-switch and post-switch turns land in separate,
+          correctly-priced rows. Logs from older Codex CLI versions with no <code>turn_context</code> entries
+          at all still fall back to the session-start model, because there's nothing else in the file to read.
+        </p>
+        <h3>3. Tool-call pairing</h3>
+        <p>
+          Codex logs a tool invocation as a <code>function_call</code> or <code>custom_tool_call</code> entry
+          carrying a <code>call_id</code>, followed later by a <code>function_call_output</code> /
+          <code>custom_tool_call_output</code> entry carrying the same <code>call_id</code>. Previously these
+          were ignored entirely — a Codex session only ever produced <code>token_events</code> (billing rows),
+          never <code>tool_events</code> — so the tool/MCP breakdown was structurally empty for every Codex
+          session, no matter how many tools it called. <code>codex-parser.ts</code> now holds each open call in
+          a <code>pendingToolCalls</code> map keyed by <code>call_id</code> and, when the matching
+          <code>*_output</code> arrives, emits a <code>ToolEvent</code> — response size and estimated tokens
+          from the output text (stringified via <code>JSON.stringify</code> when Codex emits a structured
+          object/array instead of a plain string, so the size isn't silently undercounted as 0), latency as
+          output-timestamp minus call-timestamp. A call whose session ends before its output ever arrives is
+          simply never flushed — not guessed at, not counted as zero.
+        </p>
+
+        <h2 id="command">Command</h2>
+        <p>Four real surfaces, all reading the local SQLite DB — nothing here calls out to OpenAI.</p>
+
+        <h3>1. Re-ingest with <code>--force</code> after upgrading</h3>
+        <p>
+          Token Meter's ingest is incremental (mtime + size) — a file it already processed under an older
+          version won't be re-parsed just because the parser logic changed. If you upgraded across the
+          WSL-discovery / model-switch / tool-pairing fixes above, a plain <code>token-meter ingest</code>
+          won't backfill anything for files it already saw; you need one forced pass:
+        </p>
+        <pre class="code">token-meter ingest --force</pre>
+        <p class="hint">
+          Expect a much larger <code>files_scanned</code> count for Codex than before if you're on WSL and any
+          sessions were only sitting on the Windows side — that's the previously-invisible data being picked
+          up, not duplication.
+        </p>
+
+        <h3>2. Scope the audit to Codex</h3>
+        <pre class="code">token-meter audit --days 7 --source codex --json</pre>
+        <p class="hint">
+          <code>--source</code> accepts <code>all</code> | <code>claude</code> | <code>codex</code> (maps
+          internally to the <code>codex</code> source tag). Drop <code>--json</code> for the terse terminal
+          view, which includes the same per-source <code>Warnings</code> block. <code>--days</code> is clamped
+          to your tier's history cap (7d Free, 30d Pro).
+        </p>
+
+        <h3>3. Aggregate stats — Codex separates by model name</h3>
+        <pre class="code">token-meter stats 7</pre>
+        <p class="hint">
+          <code>stats</code> has no <code>--source</code> flag of its own — it always covers every ingested
+          source. In practice Codex is easy to pick out: its rows use <code>gpt-*</code> model ids in the "By
+          model" table, and Codex tool rows always show <code>-</code> in the <code>mcp</code> column of the
+          "MCP &amp; tools" table (see Limitations).
+        </p>
+
+        <h3>4. From inside your assistant, over MCP</h3>
+        <pre class="code">Use token-meter usage_summary with scope "codex" for this week</pre>
+        <p class="hint">
+          The <code>usage_summary</code> MCP tool's <code>scope</code> parameter accepts
+          <code>auto</code> (default — filters to your current platform) | <code>all</code> | <code>wsl</code> |
+          <code>linux</code> | <code>win</code> | <code>windows</code> | <code>codex</code> |
+          <code>claude-code</code>. Ask <em>"Use token-meter recent_sessions"</em> for a list that includes
+          ready-to-paste <code>codex resume &lt;id&gt;</code> commands for Codex sessions specifically.
+        </p>
+
+        <h2 id="output">Synthetic output</h2>
+        <p><em>Fabricated example numbers below — not real user data — to show the shape of each command's output.</em></p>
+
+        <p class="guide-label"><code>token-meter ingest --force</code> (WSL machine, first run after upgrade)</p>
+        <pre class="terminal"><span class="term-cmd">$ token-meter ingest --force</span>
+Claude Code: scanned 214, processed 214, +18420 tokens, +6110 tools in 1840ms
+Codex:       scanned 97, processed 97, +5310 tokens in 610ms</pre>
+
+        <p class="guide-label"><code>token-meter audit --days 7 --source codex</code> (terminal)</p>
+        <pre class="terminal">TOKEN METER AUDIT — LAST 7 DAYS
+
+Sources
+codex: partial (312 records analyzed, 100% of window covered — see warnings)
+
+Confirmed usage
+Tokens: 214.6k total (in 89.1k, out 61.4k, cache 64.1k)
+Estimated cost: $2.1140
+
+Efficiency signals
+Findings: 2
+Cost associated: $0.6120
+Confidence: medium
+
+1. 1 short gpt-5.5 session with minimal output
+Source: codex
+Project: /home/you/projects/api-gateway
+Session: -
+Tool: -
+Evidence: gpt-5.5 is billed at $30/M output tokens — at or above this audit's high-cost bar of $25.00/M, derived from the current pricing table rather than a hardcoded model name. 8a2f1c9d-... (/home/you/projects/api-gateway): 94s wall-clock, 210 output tokens, $0.6120.
+Confidence: low
+Suggested action: Review whether every short session required this model.
+
+2. apply_patch calls averaging 4.2s
+Source: codex
+Project: /home/you/projects/api-gateway
+Session: -
+Tool: apply_patch
+Evidence: Mean latency 4.2s (4200ms) across 6 call(s) with a recorded latency_ms, in the 7d window. p50 (median) 3.8s, p95 6.1s, max 6.4s. failure_rate is not available: tool_events has no error/failure/status column in this schema, so it is reported as null rather than fabricated.
+Confidence: medium
+Suggested action: Investigate whether apply_patch's output is actually used downstream; if not, drop the call or cache the result to avoid the 4.2s penalty per call.
+
+Warnings
+- [codex] cache_inefficiency (D5) does not run for Codex: Codex's usage payload never reports cache_write_tokens, so cache-waste-day detection is structurally unavailable for this source (see src/audit/detectors/cache-inefficiency.ts).</pre>
+
+        <p class="guide-label"><code>token-meter stats 7</code> — "By model" excerpt, same session as above, model switch mid-session</p>
+        <pre class="terminal">=== By model (7d) ===
+gpt-5.3-codex-spark            $1.5020  out=42.0k  events=118
+gpt-5.4                        $0.6120  out=19.4k  events=14
+claude-sonnet-4-6              $12.3300  out=310.0k  events=880</pre>
+
+        <h2 id="interpretation">Interpretation</h2>
+        <ul>
+          <li>
+            <strong><code>Sources → codex: partial</code></strong> — <code>partial</code> here does not mean
+            "something is missing/broken with your data." Per the audit's status rule, Codex is reported
+            <code>partial</code> whenever it has in-window data at all, precisely because at least one
+            detector (D5, cache) is structurally unable to use Codex — see the <code>Warnings</code> block for
+            exactly which. <code>available</code> is reserved for Claude Code, which has no such known gap.
+          </li>
+          <li>
+            <strong>Two separate model rows in "By model"</strong> (<code>gpt-5.3-codex-spark</code> and
+            <code>gpt-5.4</code> for what was, to you, one continuous work session) is the correct,
+            expected shape post-fix — it's <code>turn_context</code> doing its job, attributing pre-switch and
+            post-switch turns to the model that actually served them instead of collapsing the whole session
+            into one (wrong) rate.
+          </li>
+          <li>
+            <strong>D6's <code>high_cost_model_signal</code> finding</strong> is a review prompt, not an
+            accusation — it fires on objective thresholds (short session + low output + high-cost-tier model,
+            ranked by <code>$/M output</code> rather than a model-name allowlist) but confidence is capped at
+            <code>low</code> because "was this model choice actually wrong" is a judgment call the thresholds
+            alone can't make.
+          </li>
+          <li>
+            <strong><code>Tool: -</code> and <code>mcp_server: -</code> on Codex findings</strong> — expected,
+            not a bug in this specific report; see Limitations for why Codex tool calls never carry an MCP
+            server name.
+          </li>
+          <li>
+            <strong>The ingest counters</strong> — <code>Codex: scanned 97, processed 97</code> — a jump in
+            <code>files_scanned</code> right after upgrading on a WSL box (relative to what you remember from
+            before) is the Windows-side directory being discovered for the first time, not duplicate rows;
+            each file still dedupes by its own <code>(session_id, ts, request_id, model)</code> unique index.
+          </li>
+        </ul>
+
+        <h2 id="actions">Actions</h2>
+        <ol>
+          <li>
+            <strong>Codex showing $0 on a WSL machine?</strong> First confirm you're on Token Meter ≥ 0.1.26,
+            then run <code>token-meter ingest --force</code> once. If it's still $0, check whether
+            <code>/mnt/c/Users/&lt;your-profile&gt;/.codex/sessions</code> actually exists on the Windows side —
+            if Codex was run from a WSL shell all along, its logs are under the WSL home dir instead, and a $0
+            result there points at something else (Codex never actually run, or a permissions issue reading
+            <code>~/.codex/sessions</code>).
+          </li>
+          <li>
+            <strong>Cost looks off after a mid-session model switch?</strong> Cross-check the "By model" table
+            (or <code>usage_summary</code>) for that day — you should see one row per model actually used, not
+            one blended row. If you only see the pre-switch model, the session's JSONL predates
+            <code>turn_context</code> support in your Codex CLI version; there's no way to retroactively recover
+            per-turn attribution from a log that never recorded it.
+          </li>
+          <li>
+            <strong>No Codex rows in the tool/MCP breakdown at all?</strong> Re-ingest with <code>--force</code>
+            first — tool-event extraction for Codex only exists from 0.1.26 onward, so any Codex session ingested
+            under an older version has token rows but zero tool rows until you re-parse the file.
+          </li>
+          <li>
+            <strong>Comparing a Codex-heavy vs. Claude-Code-heavy week?</strong> Use
+            <code>usage_summary scope="codex"</code> and <code>scope="claude-code"</code> separately rather
+            than eyeballing the combined <code>stats</code> output — the scope filter is the one built
+            specifically to avoid mixing platforms/sources, and it also surfaces a "hidden: $X.YY" hint for
+            what the current scope excluded.
+          </li>
+          <li>
+            <strong>Chasing a slow or oversized Codex tool</strong> (e.g. <code>apply_patch</code>,
+            <code>shell</code>)? Group by <code>tool_name</code> alone, not <code>(tool_name, mcp_server)</code>
+            — every Codex tool row has <code>mcp_server: null</code>, so grouping by the pair silently collapses
+            every distinct Codex tool that happens to share a name pattern into one bucket labeled the same as
+            any of Codex's own built-ins.
+          </li>
+        </ol>
+
+        <h2 id="limitations">Limitations</h2>
+        <ul>
+          <li>
+            <strong>Codex tool calls are never attributed to an MCP server.</strong> Every Codex
+            <code>ToolEvent</code> is stamped <code>mcp_server: null</code> in <code>codex-parser.ts</code> —
+            Codex's transcript format doesn't carry the <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> naming
+            convention Claude Code uses, so there is currently no way to tell a Codex-side MCP tool call apart
+            from one of Codex's own built-in function/custom tools. You get tool name, response size, and
+            latency for Codex tools — never which MCP server (if any) served the call.
+          </li>
+          <li>
+            <strong>Cache-write tracking is structurally unavailable for Codex (D5).</strong> Codex's
+            <code>usage</code> payload only ever exposes <code>cached_input_tokens</code> (mapped to
+            <code>cache_read_tokens</code>); <code>codex-parser.ts</code> hardcodes
+            <code>cache_write_tokens: 0</code> for every Codex row, so a Codex session can never satisfy the
+            <code>cache_write &gt; cache_read</code> condition the cache-inefficiency detector (D5) looks for. A
+            <code>--source codex</code> audit will never return a D5 finding, by design — the report's
+            <code>sources[].warnings</code> says so explicitly rather than silently showing "no cache issues."
+          </li>
+          <li>
+            <strong>Codex tool events never get a <code>file_ext</code>.</strong> The extension-based
+            binary-file trim heuristic (<code>REPEATED_BINARY</code>) reads <code>tool_events.file_ext</code>,
+            which <code>codex-parser.ts</code> never populates for Codex rows — that field is extracted only
+            from a Claude Code <code>tool_use</code> block's <code>file_path</code>/<code>path</code>/
+            <code>notebook_path</code> argument. Codex rows fall back to (or are simply absent from) the
+            older frequency-based heuristic instead.
+          </li>
+          <li>
+            <strong>"Repeated calls" (D4) is the same timing/size proxy for Codex as for Claude Code, not
+            argument-level dedup.</strong> Neither source's <code>tool_events</code> table stores call
+            arguments by design (see <code>ToolEvent</code> in <code>src/types.ts</code>) — Codex's tool-call
+            pairing adds response size and latency, but not arguments. D4 clusters by same session + tool +
+            timing proximity (5-minute window) + response-size similarity (within 10% of the cluster average)
+            as a proxy for "probably did something similar repeatedly," never proof of identical inputs.
+            Confidence is capped at <code>medium</code> for exactly this reason.
+          </li>
+          <li>
+            <strong>An unmatched pending tool call is silently dropped, not counted.</strong> If a Codex
+            session ends (crash, Ctrl-C, terminal closed) while a <code>function_call</code> is still awaiting
+            its <code>*_output</code>, that call never becomes a <code>ToolEvent</code> — it's neither
+            estimated nor guessed at. A session interrupted mid-tool-call will show fewer tool calls than it
+            actually made.
+          </li>
+          <li>
+            <strong>The WSL/Windows directory fallback only matters if Token Meter itself runs under WSL.</strong>
+            If Token Meter runs natively on Windows, macOS, or Linux, <code>homedir()</code> already resolves to
+            the right place and there's only one directory to scan — a $0 Codex result there is a different
+            problem (Codex never run, or a permissions issue), not the discovery gap this guide covers.
+          </li>
+          <li>
+            <strong>One Codex model's price is a placeholder.</strong> <code>gpt-5.3-codex-spark</code> had no
+            published API pricing on OpenAI's site as of 2026-07-12 (it was a ChatGPT Pro research preview at
+            the time) — <code>pricing.ts</code> prices it at the plain <code>gpt-5</code> base rate with a
+            <code>TODO</code> to correct it once official pricing ships. Any session using that specific model
+            id will under- or over-estimate cost until that row is updated.
+          </li>
+          <li>
+            <strong>Response size is estimated, not billed.</strong> Codex tool-response tokens use the same
+            ~3.5 chars/token heuristic (<code>estimateTokensFromText()</code>) Claude Code's parser uses — a
+            local sizing signal, not the token count OpenAI actually charged for.
+          </li>
+        </ul>
+
+        <h2 id="related">Related guides</h2>
+        <ul class="guide-links">
+          <li><a href="/guides/find-expensive-claude-code-sessions/">Find your most expensive Claude Code sessions</a></li>
+          <li><a href="/guides/claude-code-mcp-token-usage/">Which MCP server is eating your Claude Code tokens?</a></li>
+          <li><a href="/guides/find-slow-mcp-tools/">Find the MCP tools slowing your sessions down</a></li>
+          <li><a href="/guides/reduce-large-mcp-responses/">Reduce oversized MCP tool responses</a></li>
+        </ul>
+
+        <p class="guide-cta">
+          <a href="/">← Token Meter home</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter" target="_blank" rel="noreferrer">Source on GitHub</a> ·
+          <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/audit.md" target="_blank" rel="noreferrer">Full audit docs</a>
+        </p>
+      </article>
+    </main>
+
+    <footer>
+      <p>© <span id="year"></span> Token Meter · <a href="mailto:hello@token-meter.dev">hello@token-meter.dev</a></p>
+    </footer>
+
+    <style>
+      .guide-hero { padding-bottom: 32px; }
+      .guide-breadcrumb { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+      .guide-breadcrumb a { color: var(--muted); }
+      .guide-meta { color: var(--muted); font-size: 13px; margin: 0; }
+      .guide-hero code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--accent-2); }
+
+      .guide-main { max-width: 760px; margin: 0 auto; padding: 0 32px 72px; }
+      .guide-main h2 { font-size: 22px; margin: 48px 0 16px; letter-spacing: -0.01em; scroll-margin-top: 80px; }
+      .guide-main h2:first-child { margin-top: 0; }
+      .guide-main h3 { font-size: 16px; margin: 28px 0 10px; color: var(--text); }
+      .guide-main p, .guide-main li { color: var(--muted); line-height: 1.7; }
+      .guide-main strong { color: var(--text); }
+      .guide-main ul, .guide-main ol { padding-left: 22px; margin: 0 0 16px; }
+      .guide-main li { margin-bottom: 10px; }
+      .guide-main code {
+        background: var(--panel-2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--accent-2);
+      }
+      .guide-main .code {
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 12px 0 16px;
+      }
+      .guide-main .terminal {
+        max-width: 100%;
+        margin: 12px 0 20px;
+        font-size: 12.5px;
+      }
+      .guide-label { color: var(--text); font-size: 13px; font-weight: 600; margin: 24px 0 4px; }
+      .guide-label code { color: var(--accent-2); }
+      .guide-links { list-style: none; padding: 0; margin: 0 0 24px; }
+      .guide-links li {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+      }
+      .guide-links a { color: var(--text); font-weight: 600; }
+      .guide-cta { color: var(--muted); font-size: 14px; margin-top: 40px; }
+
+      @media (max-width: 600px) {
+        .guide-main { padding: 0 16px 48px; }
+      }
+    </style>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>

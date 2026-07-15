@@ -9,6 +9,7 @@ import { forecastMonthly, getMonthlyBudget, setMonthlyBudget } from './forecast.
 import { exportCsv, exportJson } from './export.js';
 import { gatherDigestFacts, renderDigestText, sendWeeklyDigest } from './digest.js';
 import { computeTrimSuggestions } from './trim-suggestions.js';
+import { runAudit } from './audit/engine.js';
 import {
   createRule,
   deleteRule,
@@ -320,6 +321,38 @@ export async function startDashboard(): Promise<void> {
   app.get('/api/subagents', async (req) => {
     const days = daysFromQuery((req.query as Record<string, unknown>).days);
     return { days, ...subagentCosts(db, days, 5) };
+  });
+
+  // Free tier — top cost/efficiency signals from the audit engine (see
+  // ../audit/engine.ts). Query defaults mirror `token-meter audit`'s CLI
+  // defaults (days=7, source=all, limit=5), not this file's other
+  // days=30-default routes (daysFromQuery()) — the audit report is a
+  // point-in-time signal digest, not a trend view.
+  app.get('/api/audit', async (req) => {
+    const q = req.query as Record<string, unknown>;
+
+    const daysRaw = typeof q.days === 'string' ? Number.parseInt(q.days, 10) : NaN;
+    const requestedDays = Number.isFinite(daysRaw) && daysRaw > 0 && daysRaw <= 365 ? daysRaw : 7;
+    const ent = getEntitlement();
+    const days = clampDaysToEntitlement(requestedDays, ent.tier);
+
+    // CLI-facing values (all|claude|codex) map to the internal source
+    // identifiers ('claude' -> 'claude-code') DetectorContext/AuditReport
+    // use — same mapping cli.ts's `audit` command applies. Unrecognized
+    // values silently fall back to 'all', matching this file's other query
+    // params (e.g. parseDays()) rather than erroring like the CLI does.
+    const sourceMap: Record<string, 'all' | 'claude-code' | 'codex'> = {
+      all: 'all',
+      claude: 'claude-code',
+      'claude-code': 'claude-code',
+      codex: 'codex',
+    };
+    const source = (typeof q.source === 'string' && sourceMap[q.source]) || 'all';
+
+    const project = typeof q.project === 'string' && q.project.length > 0 ? q.project : null;
+    const limit = Math.min(100, Math.max(1, Number.parseInt(String(q.limit ?? '5'), 10) || 5));
+
+    return runAudit(db, { days, source, project, limit });
   });
 
   // ---------- Feature 1: Cost forecast + pacing (Pro) ----------

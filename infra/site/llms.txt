@@ -10,6 +10,7 @@
 - Estimates what the same usage would have cost on metered API pricing — useful on flat-fee plans (Claude Max, etc.) to see savings or burn.
 - Cache-efficiency reporting: how much prompt caching actually saved you.
 - Ships an MCP server so an AI assistant can answer "this week's spend", "recent sessions to resume", or "why was session X expensive" without opening the dashboard.
+- Runs a local `audit` command that ranks findings — expensive sessions, oversized MCP tool responses, slow tools, repeated tool calls, and cache inefficiencies — by cost and confidence, computed entirely from local data.
 
 ## Quick answer
 
@@ -44,6 +45,7 @@ token-meter ingest && token-meter serve   # dashboard at http://localhost:8765
 ```
 
 Terminal stats: `npx @whdrnr2583/token-meter stats 7`
+Run an audit: `npx -y @whdrnr2583/token-meter audit` (finds expensive sessions, oversized MCP responses, slow tools, repeated calls, and cache inefficiencies; add `--json` for machine-readable output)
 Wire MCP into a client: `npx -y @whdrnr2583/token-meter install-mcp all`
 
 ## Pricing
@@ -60,6 +62,9 @@ A free Claude & Codex API cost calculator lives at https://token-meter.dev/calcu
 
 - Site: https://token-meter.dev
 - Cost calculator: https://token-meter.dev/calculator
+- Audit demo (sample report, no install): https://token-meter.dev/demo/
+- Guides: https://token-meter.dev/guides/ (expensive Claude Code sessions, MCP token usage, slow MCP tools, large MCP responses, Codex cost)
 - Source (MIT core): https://github.com/whdrnr2583-cmd/token-meter
 - npm: https://www.npmjs.com/package/@whdrnr2583/token-meter
 - MCP setup: https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/mcp-server.md
+- Audit docs: https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/audit.md

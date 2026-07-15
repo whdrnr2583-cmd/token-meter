@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-15T14:32:07.118Z",
+  "period": {
+    "start": "2026-07-08T14:32:07.118Z",
+    "end": "2026-07-15T14:32:07.118Z",
+    "days": 7
+  },
+  "sources": [
+    {
+      "name": "claude-code",
+      "status": "available",
+      "coverage": 1,
+      "recordsAnalyzed": 812,
+      "recordsSkipped": 143,
+      "warnings": []
+    },
+    {
+      "name": "codex",
+      "status": "partial",
+      "coverage": 0.86,
+      "recordsAnalyzed": 96,
+      "recordsSkipped": 12,
+      "warnings": [
+        "cache_inefficiency (D5) does not run for Codex: Codex's usage payload never reports cache_write_tokens, so cache-waste-day detection is structurally unavailable for this source (see src/audit/detectors/cache-inefficiency.ts)."
+      ]
+    }
+  ],
+  "usage": {
+    "inputTokens": 1250000,
+    "outputTokens": 380000,
+    "cacheReadTokens": 2100000,
+    "cacheWriteTokens": 95000,
+    "totalTokens": 3825000,
+    "estimatedCostUsd": 42.15
+  },
+  "summary": {
+    "findingCount": 3,
+    "costAssociatedUsd": 12.8828,
+    "overallConfidence": "high",
+    "findingsMayOverlap": false
+  },
+  "findings": [
+    {
+      "id": "a1b2c3d4e5f6a7b8",
+      "rank": 1,
+      "type": "expensive_session",
+      "title": "Session accounted for 34% of analyzed cost",
+      "description": "This session accounted for 34% of analyzed estimated cost — $12.47 of $36.68 across 9 sessions in the 7-day window. Flagged for visibility, not as a problem.",
+      "source": "claude-code",
+      "project": "/Users/example/my-project",
+      "sessionId": "sess-abc123",
+      "toolName": null,
+      "metrics": {
+        "totalUsd": 12.47,
+        "costSharePct": 34.0,
+        "events": 142,
+        "durationMs": 5416000,
+        "topModel": "claude-opus-4-1",
+        "project": "/Users/example/my-project"
+      },
+      "estimatedCostUsd": 12.47,
+      "costLabel": "estimated_cost",
+      "confidence": "high",
+      "evidence": [
+        "$12.47 across 142 events over 90 min (top model: claude-opus-4-1).",
+        "That's 34.0% of $36.68 across 9 sessions in the 7-day window."
+      ],
+      "recommendations": [
+        "Review this session's transcript to see what drove the cost (model choice, tool calls, context size).",
+        "Compare it against similar sessions to see whether this cost is typical for this kind of task."
+      ],
+      "costEventIds": ["session:claude-code:sess-abc123"]
+    },
+    {
+      "id": "b2c3d4e5f6a7b8c9",
+      "rank": 2,
+      "type": "oversized_tool_response",
+      "title": "[notion] notion_search responses averaging 8.2k tokens",
+      "description": "notion_search ([notion]) averaged 8,200 response tokens per call over 34 calls in the last 7d — trimming the returned fields could cut this significantly.",
+      "source": "claude-code",
+      "project": null,
+      "sessionId": null,
+      "toolName": "notion_search",
+      "metrics": {
+        "toolName": "notion_search",
+        "mcpServer": "notion",
+        "callCount": 34,
+        "meanTokens": 8200,
+        "maxTokens": 15600
+      },
+      "estimatedCostUsd": 0.4128,
+      "costLabel": "cost_associated",
+      "confidence": "high",
+      "evidence": [
+        "notion_search ([notion]) averaged 8,200 response tokens per call over 34 calls.",
+        "Narrowing the query/filter scope or lowering the result limit could cut this by an estimated $0.41/week."
+      ],
+      "recommendations": [
+        "Narrow [notion] notion_search's query/filter scope instead of searching or listing broadly.",
+        "Lower the result limit if [notion] notion_search accepts one (e.g. `limit`/`max_results`/`top_k`).",
+        "Paginate through [notion] notion_search results across multiple calls instead of requesting them all at once.",
+        "Summarize or post-process [notion] notion_search's response before it enters the model context, if the full payload isn't needed downstream.",
+        "Check whether repeated [notion] notion_search calls return duplicate or already-seen context that could be deduplicated or cached."
+      ],
+      "costEventIds": ["tool:notion_search:notion"]
+    },
+    {
+      "id": "c3d4e5f6a7b8c9d0",
+      "rank": 3,
+      "type": "repeated_similar_tool_calls",
+      "title": "5 similar Read calls within 3 minutes in one session",
+      "description": "Read was called 5 times in session sess-def456 with similarly-sized responses (avg ~2,340 chars) within a 5-minute window.",
+      "source": "claude-code",
+      "project": "/Users/example/other-project",
+      "sessionId": "sess-def456",
+      "toolName": "Read",
+      "metrics": {
+        "toolName": "Read",
+        "mcpServer": null,
+        "sessionId": "sess-def456",
+        "callCount": 5,
+        "windowMs": 300000,
+        "avgResponseChars": 2340
+      },
+      "estimatedCostUsd": null,
+      "costLabel": "not_available",
+      "confidence": "medium",
+      "evidence": [
+        "Matched by same tool (Read) + same session + response size within 10% of each other + occurred within a 5-minute window. Call arguments are not stored (privacy-by-design) so this is a proxy signal, not confirmed duplicate calls.",
+        "5 calls in session sess-def456 spanned 3 minutes (window threshold: 5-minute), averaging ~2,340 response chars per call."
+      ],
+      "recommendations": [
+        "Review whether these 5 Read calls in session sess-def456 are intentional (e.g. polling/pagination/retry) or avoidable repeats — deduplicating avoidable repeats saves both latency and tokens."
+      ],
+      "costEventIds": []
+    }
+  ]
+}

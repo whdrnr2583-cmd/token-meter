@@ -39,6 +39,23 @@ export interface TrimSuggestion {
   savings_usd_per_week: number;
   /** One-liner the user can copy and act on. */
   action_text: string;
+  /**
+   * Sample size (tool_events rows in the window) each detector's aggregate
+   * was computed over. Every detector below already computes this value for
+   * its own HAVING/evidence text; it just wasn't returned on the struct
+   * before. Exposed so callers (e.g. the audit feature's D2
+   * oversized_tool_response detector) can build their own metrics/evidence
+   * without re-querying or re-deriving numbers this function already has.
+   */
+  calls: number;
+  /** Average response_tokens_est per call backing this suggestion — the same number `evidence` is derived from. */
+  avg_tokens: number;
+  /**
+   * Max response_tokens_est per call. Only the LARGE_RESPONSE detector
+   * computes MAX() in its query; repeated_binary/high_latency suggestions
+   * leave this undefined rather than a fabricated 0 or a re-query.
+   */
+  max_tokens?: number;
 }
 
 // Minimum call count to flag a read tool as high-frequency. Used both by the
@@ -123,6 +140,9 @@ export function computeTrimSuggestions(
       savings_tokens_per_week: savingsTok,
       savings_usd_per_week: savingsTok * usdPerToken,
       action_text: `Configure \`fields\` or \`limit\` on ${label} to reduce response size (est. ${savingsTok.toLocaleString()} tokens/week saved).`,
+      calls: r.calls,
+      avg_tokens: r.avg_tokens,
+      max_tokens: r.max_tokens,
     });
   }
 
@@ -171,6 +191,8 @@ export function computeTrimSuggestions(
       savings_tokens_per_week: savingsTok,
       savings_usd_per_week: savingsTok * usdPerToken,
       action_text: `Add an exclude glob pattern like \`${globPattern}\` to ${label} in your Claude Code settings to avoid reading ${extLabel} files.`,
+      calls: r.calls,
+      avg_tokens: r.avg_tokens,
     });
   }
 
@@ -210,6 +232,8 @@ export function computeTrimSuggestions(
       savings_tokens_per_week: savingsTok,
       savings_usd_per_week: savingsTok * usdPerToken,
       action_text: `Add an exclude glob pattern like \`**/*.{png,jpg,svg,pdf}\` to ${r.tool_name} in your Claude Code settings to avoid reading binary or large asset files.`,
+      calls: r.calls,
+      avg_tokens: r.avg_tokens,
     });
   }
 
@@ -251,6 +275,8 @@ export function computeTrimSuggestions(
       savings_tokens_per_week: savingsTok,
       savings_usd_per_week: savingsTok * usdPerToken,
       action_text: `Investigate whether ${label} output is used downstream; if not, remove the call or cache the result to avoid the ${r.avg_latency_ms.toLocaleString()}ms penalty per call.`,
+      calls: r.calls,
+      avg_tokens: r.avg_tokens,
     });
   }
 

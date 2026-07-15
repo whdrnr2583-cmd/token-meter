@@ -4,12 +4,17 @@ import { migrate, openDb } from './db.js';
 import { ingestAll } from './ingest.js';
 import { byMcp, byModel, byProject, daily, localPerf, overview, subagentCosts } from './stats.js';
 import { clampDaysToEntitlement, getEntitlement, isProTier } from './license.js';
+import type { AuditReport } from './audit/types.js';
 
 const USAGE = `Usage:
   token-meter ingest [--force]              Scan JSONL → SQLite
   token-meter stats [days=30]               Print summary
   token-meter subagents [days=30]           Main vs sub-agent (Task/Agent) cost split
   token-meter local [days=30]               Local LLM perf (TTFT / TPS) captured by the proxy
+  token-meter audit [--days N] [--source all|claude|codex] [--project <value>] [--limit N] [--json]
+                                            Cost/latency findings report (expensive sessions, oversized
+                                            tool responses, slow tools, repeated calls, cache waste,
+                                            high-cost-model signal)
   token-meter proxy [--port N] [--backend URL] [--label NAME]
                                             Proxy a local OpenAI-compatible LLM and measure it
   token-meter export <csv|json> [days=30] [--out <path>]
@@ -399,6 +404,87 @@ async function main(): Promise<void> {
     const ent = getEntitlement();
     const days = clampDaysToEntitlement(requested, ent.tier);
     printLocalPerf(db, days);
+    return;
+  }
+
+  if (cmd === 'audit') {
+    const AUDIT_USAGE =
+      'Usage: token-meter audit [--days N] [--source all|claude|codex] [--project <value>] [--limit N] [--json]';
+    const flagVal = (name: string): string | undefined => {
+      const i = rest.indexOf(name);
+      return i !== -1 ? rest[i + 1] : undefined;
+    };
+    const jsonMode = rest.includes('--json');
+
+    const daysRaw = flagVal('--days');
+    const requestedDays = daysRaw !== undefined ? Number.parseInt(daysRaw, 10) : 7;
+    if (!Number.isFinite(requestedDays) || requestedDays <= 0) {
+      console.error(`Invalid --days value: ${daysRaw}\n${AUDIT_USAGE}`);
+      process.exit(1);
+    }
+    const ent = getEntitlement();
+    const days = clampDaysToEntitlement(requestedDays, ent.tier);
+    if (days < requestedDays) {
+      const tierLabel = ent.tier === 'free' ? 'Free' : 'Pro';
+      console.error(
+        `[${tierLabel} tier] history clamped to ${days} days (requested ${requestedDays}). ` +
+          `See https://token-meter.dev#pricing`,
+      );
+    }
+
+    // CLI-facing values (all|claude|codex) map to the internal source
+    // identifiers ('claude' -> 'claude-code') DetectorContext/AuditReport use.
+    const sourceArg = flagVal('--source') ?? 'all';
+    const sourceMap: Record<string, 'all' | 'claude-code' | 'codex'> = {
+      all: 'all',
+      claude: 'claude-code',
+      codex: 'codex',
+    };
+    const source = sourceMap[sourceArg];
+    if (!source) {
+      console.error(`Invalid --source value: ${sourceArg} (expected all|claude|codex)\n${AUDIT_USAGE}`);
+      process.exit(1);
+    }
+
+    const project = flagVal('--project') ?? null;
+
+    // --limit caps how many findings the TERMINAL view prints. --json has no
+    // separate flag of its own — per the audit spec, JSON output "should
+    // still be able to show more if useful" than the terse terminal default,
+    // so an explicit --limit always wins, but an unset --limit defaults
+    // higher in --json mode (more useful for scripted/dashboard consumers)
+    // than in the terminal's terse default.
+    const limitRaw = flagVal('--limit');
+    let limit: number;
+    if (limitRaw !== undefined) {
+      limit = Number.parseInt(limitRaw, 10);
+      if (!Number.isFinite(limit) || limit <= 0) {
+        console.error(`Invalid --limit value: ${limitRaw}\n${AUDIT_USAGE}`);
+        process.exit(1);
+      }
+    } else {
+      limit = jsonMode ? 20 : 5;
+    }
+
+    const { runAudit } = await import('./audit/engine.js');
+    let report: AuditReport;
+    try {
+      report = runAudit(db, { days, source, project, limit });
+    } catch (err) {
+      console.error(`audit failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+
+    if (jsonMode) {
+      const { formatJson } = await import('./audit/reporters/json.js');
+      console.log(formatJson(report));
+    } else {
+      const { formatTerminal } = await import('./audit/reporters/terminal.js');
+      console.log(formatTerminal(report));
+    }
+    // A report with zero findings on a fully valid (if quiet) dataset is a
+    // successful run, not a failure — exit 0 either way; only the try/catch
+    // above (an actual execution failure) exits non-zero.
     return;
   }
 

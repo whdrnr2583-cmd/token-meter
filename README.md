@@ -15,6 +15,19 @@ Token Meter parses the JSONL files that Claude Code and Codex already write to
 disk and turns them into a real dashboard: cost per project, per model, per MCP
 tool, per hour. Your data never leaves your machine.
 
+## Run your first audit
+
+```sh
+npx -y @whdrnr2583/token-meter audit
+```
+
+Scans your ingested Claude Code + Codex history for expensive sessions,
+oversized tool responses, slow tools, repeated calls, and cache waste, ranked
+by cost and confidence. Runs entirely against your local SQLite database —
+same local-first, no-cloud processing as the rest of Token Meter. Add
+`--json` for machine-readable output; see [docs/audit.md](docs/audit.md) for
+the full flag list and JSON schema.
+
 ## When to use this
 
 Use Token Meter if you:
