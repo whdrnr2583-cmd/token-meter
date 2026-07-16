@@ -5,6 +5,36 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.28] — 2026-07-16
+
+### Fixed
+- **Paid-tier gating was never actually flipped default-ON.** D-038 (v0.1.10)
+  decided `isGatingEnabled()` defaults to true with `TOKEN_METER_GATING=0` as
+  the dev escape hatch, and CLAUDE.md / `docs/pro-features.md` have described
+  it that way since 5/18 — but `src/license.ts` still shipped the v0.1.3 beta
+  logic (`return v === '1' || v === 'true'`), so with the env var unset every
+  caller resolved to **Pro+ for free**. Anyone without
+  `TOKEN_METER_GATING=1` exported — i.e. every user who did not run
+  `token-meter setup` — got the full Pro+ feature set unpaid. The dogfood
+  machine has the var set in its shell rc, which is why the gap went unseen
+  locally. Default now gates (no license → Free); `0`/`false` (trimmed, so
+  cmd.exe's `set X=0 ` trailing space is tolerated) forces Pro+ for dev.
+
+  **Breaking for unlicensed v0.1.x users**: anyone who was getting Pro+
+  without a license now resolves to Free (7-day history, 1 rule,
+  desktop-only actions).
+
+### Removed
+- **`setup` no longer appends `export TOKEN_METER_GATING=1` to your shell
+  rc.** With gating default-on that line is a no-op, so the command was
+  editing `~/.zshrc`/`~/.bashrc`/`~/.profile` for no effect. `setup` now
+  just activates the license and points at `install-mcp`. Existing rc lines
+  are harmless (`1` still means gating on) and can be deleted at leisure.
+  Drops `appendShellRc()` / `ShellRcResult` from `src/license.ts`, and the
+  Windows `setx TOKEN_METER_GATING 1` caveat from the post-checkout page
+  (`infra/api`) and `docs/billing-setup.md` — it described a step that no
+  longer exists.
+
 ## [0.1.27] — 2026-07-16
 
 ### Added

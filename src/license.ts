@@ -1,21 +1,14 @@
 // License entitlement resolution.
 //
-// Status (v0.1.3): gating is **disabled by default** during the beta. Every
-// caller of getEntitlement() sees Pro+ unless TOKEN_METER_GATING=1 is set.
-// This keeps existing dogfood + beta behavior intact while the gating code
-// lands and gets exercised in CI.
+// Status (v0.1.10): gating is **enabled by default**. With no license, callers
+// of getEntitlement() resolve to Free. TOKEN_METER_GATING=0 (or false) is the
+// developer / dogfood escape hatch that forces gating off → Pro+.
 //
-// Once the Polar checkout + webhook → license issuance (γ in 05-decisions
-// D-031) is live, the default flips to enabled and TOKEN_METER_GATING is
-// reinterpreted to mean "force gating off" (developer escape hatch).
+// The Polar checkout + webhook → license issuance path (γ in 05-decisions
+// D-031) went live 2026-05-15, which is what allowed the beta's dormant
+// disabled-by-default to flip.
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -58,8 +51,9 @@ export const FREE_RULE_CAP = 1;
 export const FREE_ACTION_TYPES = new Set<string>(['notify.desktop']);
 
 function isGatingEnabled(): boolean {
-  const v = process.env[GATING_ENV];
-  return v === '1' || v === 'true';
+  // Trimmed: cmd.exe `set X=0 ` keeps the trailing space in the value.
+  const v = process.env[GATING_ENV]?.trim().toLowerCase();
+  return !(v === '0' || v === 'false');
 }
 
 function parseTier(input: string): Tier | null {
@@ -239,76 +233,3 @@ export async function activateLicense(
   };
 }
 
-// ---------- Shell rc append (`setup` command) ----------
-
-export interface ShellRcResult {
-  modified: boolean;
-  alreadyPresent: boolean;
-  path: string | null;
-  reason: string | null;
-}
-
-const SHELL_RC_LINE = 'export TOKEN_METER_GATING=1';
-
-/**
- * Append `export TOKEN_METER_GATING=1` to the user's shell rc if not already
- * present. Tries `~/.zshrc` → `~/.bashrc` → `~/.profile` in order, writing to
- * the first one that exists. Idempotent: matching string presence means skip.
- *
- * Windows: skipped — user runs `setx TOKEN_METER_GATING 1` themselves.
- */
-export function appendShellRc(): ShellRcResult {
-  if (process.platform === 'win32') {
-    return {
-      modified: false,
-      alreadyPresent: false,
-      path: null,
-      reason:
-        'Windows — run `setx TOKEN_METER_GATING 1` in cmd/PowerShell and restart the terminal.',
-    };
-  }
-  const home = homedir();
-  const candidates = [
-    join(home, '.zshrc'),
-    join(home, '.bashrc'),
-    join(home, '.profile'),
-  ];
-  for (const path of candidates) {
-    if (!existsSync(path)) continue;
-    let content = '';
-    try {
-      content = readFileSync(path, 'utf8');
-    } catch (err) {
-      return {
-        modified: false,
-        alreadyPresent: false,
-        path,
-        reason: `read failed: ${(err as Error).message}`,
-      };
-    }
-    if (content.includes('TOKEN_METER_GATING')) {
-      return { modified: false, alreadyPresent: true, path, reason: null };
-    }
-    try {
-      appendFileSync(
-        path,
-        `\n# Token Meter — paid-tier gating (added by \`token-meter setup\`)\n${SHELL_RC_LINE}\n`,
-      );
-    } catch (err) {
-      return {
-        modified: false,
-        alreadyPresent: false,
-        path,
-        reason: `append failed: ${(err as Error).message}`,
-      };
-    }
-    return { modified: true, alreadyPresent: false, path, reason: null };
-  }
-  return {
-    modified: false,
-    alreadyPresent: false,
-    path: null,
-    reason:
-      'no shell rc found (~/.zshrc, ~/.bashrc, ~/.profile). Add `export TOKEN_METER_GATING=1` to your shell config manually.',
-  };
-}

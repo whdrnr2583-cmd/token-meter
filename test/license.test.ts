@@ -32,14 +32,53 @@ function withEnv(
   }
 }
 
-test('gating disabled by default → pro_plus (beta compat)', () => {
+test('gating enabled by default, no license → free', () => {
   withEnv(
-    { TOKEN_METER_GATING: undefined, TOKEN_METER_LICENSE: undefined },
+    {
+      TOKEN_METER_GATING: undefined,
+      TOKEN_METER_LICENSE: undefined,
+      HOME: '/tmp/tokenmeter-test-no-license',
+      USERPROFILE: 'C:/tokenmeter-test-no-license',
+    },
     () => {
       const e = getEntitlement();
-      assert.equal(e.tier, 'pro_plus');
-      assert.equal(e.source, 'gating_disabled');
-      assert.equal(e.message, null);
+      assert.equal(e.tier, 'free');
+      assert.equal(e.source, 'free_default');
+    },
+  );
+});
+
+test('TOKEN_METER_GATING=0 escape hatch → pro_plus', () => {
+  withEnv({ TOKEN_METER_GATING: '0', TOKEN_METER_LICENSE: undefined }, () => {
+    const e = getEntitlement();
+    assert.equal(e.tier, 'pro_plus');
+    assert.equal(e.source, 'gating_disabled');
+    assert.equal(e.message, null);
+  });
+});
+
+test('TOKEN_METER_GATING=false escape hatch → pro_plus', () => {
+  withEnv({ TOKEN_METER_GATING: 'false' }, () => {
+    assert.equal(getEntitlement().tier, 'pro_plus');
+  });
+});
+
+test('escape hatch tolerates cmd.exe trailing space (`set X=0 `)', () => {
+  withEnv({ TOKEN_METER_GATING: '0 ' }, () => {
+    assert.equal(getEntitlement().tier, 'pro_plus');
+  });
+});
+
+test('TOKEN_METER_GATING=1 keeps gating on', () => {
+  withEnv(
+    {
+      TOKEN_METER_GATING: '1',
+      TOKEN_METER_LICENSE: undefined,
+      HOME: '/tmp/tokenmeter-test-no-license',
+      USERPROFILE: 'C:/tokenmeter-test-no-license',
+    },
+    () => {
+      assert.equal(getEntitlement().tier, 'free');
     },
   );
 });

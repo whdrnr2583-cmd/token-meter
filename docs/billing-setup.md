@@ -187,9 +187,9 @@ D-029.)
 5. On a clean dev machine (or set `TOKEN_METER_API_BASE=` to your worker
    URL):
    ```sh
-   TOKEN_METER_GATING=1 node dist/cli.js activate tm_live_<hex>
+   node dist/cli.js activate tm_live_<hex>
    # → "Activated Pro on this machine."
-   TOKEN_METER_GATING=1 node dist/cli.js stats 30
+   node dist/cli.js stats 30
    # → no "[Free tier] clamped" warning; full 30 days shown.
    ```
 6. Refund yourself in Polar → Subscriptions → cancel → confirm. The
@@ -201,17 +201,16 @@ D-029.)
 
 ---
 
-## 8. Default-on gating
+## 8. Default-on gating — done (v0.1.28, pending publish)
 
-Once steps 1-7 verify end-to-end:
+`isGatingEnabled()` in `src/license.ts` now defaults to on: no license →
+Free. `TOKEN_METER_GATING=0` (or `false`) is the dev/dogfood escape hatch
+that forces Pro+. Per D-038.
 
-1. Open `src/license.ts`. Change the default in `isGatingEnabled()` from
-   `=== '1' || === 'true'` (opt-in) to opt-out semantics (default on,
-   `TOKEN_METER_GATING=0` to force off). Bump version to `0.2.0` — this
-   is a breaking change for anyone running v0.1.x without a license.
-2. Publish: `npm publish --access public`, tag `v0.2.0`, push.
-3. Update README to mention `token-meter activate` in the install
-   instructions.
+Breaking for anyone running v0.1.x without a license, but shipped as
+`0.1.28` rather than the `0.2.0` this doc originally called for. Not yet
+on npm — publish is a manual OTP step and npm is still on 0.1.25, so
+0.1.26/0.1.27/0.1.28 all land in the same push.
 
 ---
 
@@ -224,7 +223,7 @@ Once steps 1-7 verify end-to-end:
 | Webhook fires but no row in `licenses` | Product name doesn't include "Plus" or "Team" and isn't `Pro` — handler defaults to `pro` regardless | Read `webhook_events.payload` in D1, confirm product structure |
 | `activate` returns network error | Domain not bound yet, or `TOKEN_METER_API_BASE` pointing at wrong URL | `curl https://api.token-meter.dev/v1/health` first |
 | Email never arrives | Resend domain not verified, or `RESEND_API_KEY` missing | Check Resend dashboard "Emails" log; if 403, redo step 2 |
-| `activate` succeeds but `stats` still says Free | `TOKEN_METER_GATING` not set / process was started before activate | Either set env var or call activate before the long-running process starts |
+| `activate` succeeds but `stats` still says Free | Long-running process (dashboard / MCP server) was started before activate and cached the entitlement | Restart the process so it re-reads `~/.tokenmeter/license.json` |
 
 ---
 

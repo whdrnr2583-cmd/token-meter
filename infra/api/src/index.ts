@@ -202,17 +202,14 @@ function licenseEmailText(key: string, plan: string, siteUrl: string): string {
     '"Set up Token Meter for me using this license key."',
     '',
     'MANUAL SETUP',
-    '# install + activate + persist gating env',
+    '# install + activate',
     `npx -y @whdrnr2583/token-meter setup ${key}`,
     '',
     '# optional - register as an MCP server (Claude Code)',
     'claude mcp add token-meter -- npx -y @whdrnr2583/token-meter mcp',
     '',
     '# verify (no "Free tier" warning = success)',
-    'TOKEN_METER_GATING=1 token-meter stats 30',
-    '',
-    'Windows / PowerShell: setup activates the license but skips the rc-append',
-    'step - run "setx TOKEN_METER_GATING 1" and restart the terminal.',
+    'token-meter stats 30',
     '',
     `WHAT YOU UNLOCKED WITH ${label}`,
     `- ${history} on every dashboard view`,
@@ -257,12 +254,8 @@ npx -y @whdrnr2583/token-meter setup ${key}
 claude mcp add token-meter -- npx -y @whdrnr2583/token-meter mcp
 
 # Verify
-TOKEN_METER_GATING=1 token-meter stats 30   # no "Free tier" warning = success
+token-meter stats 30   # no "Free tier" warning = success
 </pre>
-
-<p style="font-size:13px;color:#666;margin:0 0 22px">
-On Windows / PowerShell <code>setup</code> still activates the license, but the rc-append step is skipped — run <code>setx TOKEN_METER_GATING 1</code> manually and restart the terminal.
-</p>
 
 <h3 style="margin:0 0 8px">What you unlocked with ${label}</h3>
 <ul>
