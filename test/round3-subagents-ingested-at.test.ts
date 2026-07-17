@@ -227,23 +227,30 @@ test('GET /api/subagents coerces invalid ?days values to the 30-day default', as
 // With gating enabled and no license, the caller is Free (7-day history cap),
 // so daysFromQuery clamps a 30-day request down to 7. This exercises the
 // clampDaysToEntitlement path the live route depends on.
+//
+// HOME/USERPROFILE are pointed at a nonexistent dir — the same isolation
+// license.test.ts uses for its no-license cases — so getEntitlement() cannot
+// reach a real ~/.tokenmeter/license.json. Without it, "no license" is a claim
+// about the machine rather than the test: this box has a pro license on disk and
+// the case passes only because its last_verified_ms is stale past
+// GRACE_PERIOD_MS. One `token-meter activate` would resolve it to pro (30-day
+// cap) and turn this red.
 test('GET /api/subagents clamps ?days to the Free-tier history cap when gating is on', async () => {
-  const db = openDb(':memory:');
-  migrate(db);
-  const prevGating = process.env.TOKEN_METER_GATING;
-  const prevLicense = process.env.TOKEN_METER_LICENSE;
-  process.env.TOKEN_METER_GATING = '1';
-  delete process.env.TOKEN_METER_LICENSE;
-  try {
-    const app = buildSubagentsTestApp(db);
-    const res = await app.inject({ method: 'GET', url: '/api/subagents?days=30' });
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.json().days, 7, 'Free tier caps history at 7 days');
-    await app.close();
-  } finally {
-    if (prevGating !== undefined) process.env.TOKEN_METER_GATING = prevGating;
-    else delete process.env.TOKEN_METER_GATING;
-    if (prevLicense !== undefined) process.env.TOKEN_METER_LICENSE = prevLicense;
-    else delete process.env.TOKEN_METER_LICENSE;
-  }
+  await withEnvAsync(
+    {
+      TOKEN_METER_GATING: '1',
+      TOKEN_METER_LICENSE: undefined,
+      HOME: '/tmp/tokenmeter-test-no-license',
+      USERPROFILE: 'C:/tokenmeter-test-no-license',
+    },
+    async () => {
+      const db = openDb(':memory:');
+      migrate(db);
+      const app = buildSubagentsTestApp(db);
+      const res = await app.inject({ method: 'GET', url: '/api/subagents?days=30' });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json().days, 7, 'Free tier caps history at 7 days');
+      await app.close();
+    },
+  );
 });
