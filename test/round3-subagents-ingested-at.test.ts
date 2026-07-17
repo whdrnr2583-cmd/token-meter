@@ -8,7 +8,36 @@ import { daysFromQuery } from '../src/server.js';
 import { subagentCosts } from '../src/stats.js';
 import type { TokenEvent } from '../src/types.js';
 
-const BASE_TS = Date.parse('2026-07-11T04:00:00.000Z');
+// Relative to now, not a fixed calendar date: the /api/subagents split test
+// sums rows inside a rolling `days`-wide window, so a hardcoded date silently
+// ages out of that window and turns the test red on a date nobody picked. One
+// hour back sits inside every window this file asks for, and safely under the
+// `ts <= now` bound the stats queries apply.
+const BASE_TS = Date.now() - 60 * 60 * 1000;
+
+// Async-capable sibling of license.test.ts's withEnv (that one takes a sync
+// fn; the route tests below are async).
+async function withEnvAsync(
+  overrides: Record<string, string | undefined>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const before: Record<string, string | undefined> = {};
+  for (const k of Object.keys(overrides)) {
+    before[k] = process.env[k];
+    const v = overrides[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    await fn();
+  } finally {
+    for (const k of Object.keys(before)) {
+      const v = before[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
 
 function tokenEvent(over: Partial<TokenEvent>): TokenEvent {
   return {
@@ -131,29 +160,36 @@ function buildSubagentsTestApp(db: Database.Database) {
   return app;
 }
 
+// Gating is pinned off (→ pro_plus, no history clamp) so `?days=30` survives
+// daysFromQuery intact and the split assertions below are about subagentCosts,
+// not about entitlement. Before v0.1.28 that context came free from the ambient
+// default; now an unlicensed caller is Free (7-day cap), so it has to be stated.
+// The clamp itself is covered by the Free-tier test at the bottom of this file.
 test('GET /api/subagents returns the main/sub-agent split and top-5 list', async () => {
-  const db = openDb(':memory:');
-  migrate(db);
-  insertTokenEvents(db, [
-    tokenEvent({ request_id: 'm1', usd_estimate: 1 }),
-    tokenEvent({ request_id: 'a1', agent_id: 'agent-a', usd_estimate: 4, model: 'claude-haiku-4-5' }),
-    tokenEvent({ request_id: 'a2', agent_id: 'agent-b', usd_estimate: 2, model: 'claude-sonnet-4-6' }),
-  ]);
+  await withEnvAsync({ TOKEN_METER_GATING: '0' }, async () => {
+    const db = openDb(':memory:');
+    migrate(db);
+    insertTokenEvents(db, [
+      tokenEvent({ request_id: 'm1', usd_estimate: 1 }),
+      tokenEvent({ request_id: 'a1', agent_id: 'agent-a', usd_estimate: 4, model: 'claude-haiku-4-5' }),
+      tokenEvent({ request_id: 'a2', agent_id: 'agent-b', usd_estimate: 2, model: 'claude-sonnet-4-6' }),
+    ]);
 
-  const app = buildSubagentsTestApp(db);
-  const res = await app.inject({ method: 'GET', url: '/api/subagents?days=30' });
-  assert.equal(res.statusCode, 200);
-  const body = res.json();
+    const app = buildSubagentsTestApp(db);
+    const res = await app.inject({ method: 'GET', url: '/api/subagents?days=30' });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
 
-  assert.equal(body.days, 30);
-  assert.equal(body.split.main.usd, 1);
-  assert.equal(body.split.subagent.usd, 6);
-  assert.ok(Math.abs(body.subagent_share_pct - (6 / 7) * 100) < 0.01);
-  assert.equal(body.top.length, 2);
-  assert.equal(body.top[0].agent_id, 'agent-a', 'priciest sub-agent first');
-  assert.ok(Array.isArray(body.invocations));
+    assert.equal(body.days, 30);
+    assert.equal(body.split.main.usd, 1);
+    assert.equal(body.split.subagent.usd, 6);
+    assert.ok(Math.abs(body.subagent_share_pct - (6 / 7) * 100) < 0.01);
+    assert.equal(body.top.length, 2);
+    assert.equal(body.top[0].agent_id, 'agent-a', 'priciest sub-agent first');
+    assert.ok(Array.isArray(body.invocations));
 
-  await app.close();
+    await app.close();
+  });
 });
 
 test('GET /api/subagents on an empty DB returns zeroed split, no top rows', async () => {
@@ -172,16 +208,20 @@ test('GET /api/subagents on an empty DB returns zeroed split, no top rows', asyn
 // The route runs ?days= through daysFromQuery → parseDays, which rejects
 // non-numeric / out-of-range values and falls back to 30. Because the handler
 // now shares that exact function, these bad inputs are validated for real.
+// Gating pinned off so the 30-day fallback is observable — under the Free cap
+// every one of these would read 7 and the parseDays fallback would be invisible.
 test('GET /api/subagents coerces invalid ?days values to the 30-day default', async () => {
-  const db = openDb(':memory:');
-  migrate(db);
-  const app = buildSubagentsTestApp(db);
-  for (const bad of ['abc', '-5', '0', '999']) {
-    const res = await app.inject({ method: 'GET', url: `/api/subagents?days=${bad}` });
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.json().days, 30, `?days=${bad} should fall back to 30`);
-  }
-  await app.close();
+  await withEnvAsync({ TOKEN_METER_GATING: '0' }, async () => {
+    const db = openDb(':memory:');
+    migrate(db);
+    const app = buildSubagentsTestApp(db);
+    for (const bad of ['abc', '-5', '0', '999']) {
+      const res = await app.inject({ method: 'GET', url: `/api/subagents?days=${bad}` });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json().days, 30, `?days=${bad} should fall back to 30`);
+    }
+    await app.close();
+  });
 });
 
 // With gating enabled and no license, the caller is Free (7-day history cap),
