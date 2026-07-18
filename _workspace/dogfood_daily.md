@@ -68,7 +68,7 @@ cd "/mnt/c/Users/whdrn/Desktop/money/token-pulse" && cmd.exe /c "npx -y @whdrnr2
 | 7/15 | _ | _ | _ | _ | ✓ | dogfood $165.81 / 1405 events. |
 | 7/16 | _ | _ | _ | _ | ✓ | dogfood $63.32 / 485 events. **v0.1.27·v0.1.28 publish** (CHANGELOG 07-16) — `token-meter audit` 명령 추가 + gating default-ON 수정(미인증 caller가 Pro+로 새던 버그, unlicensed→Free breaking). 이후 test 커밋 2건(7caea68·ea203a5). OSS-maintain 하 버그/보안 픽스. |
 | 7/17 | _ | _ | _ | _ | ✓ | dogfood $114.32 / 1150 events. (메모리: 07-17~18 3트랙 종료 시 0.1.28 배포 확정.) |
-| 7/18 | _ | _ | _ | _ | ✓ | dogfood $13.95 / 49 events (진행중, 오늘). **7d 누적 $711.22** / cache_r 895.4M · write 44.0M. 비싼/느린 도구: Read 2.95M resp_tok · Bash avg 5.6s · exec avg 51s. |
+| 7/18 | _ | _ | _ | _ | ✓ | dogfood $13.95 / 49 events (진행중, 오늘). **7d 누적 $711.22** / cache_r 895.4M · write 44.0M. 비싼/느린 도구: Read 2.95M resp_tok · Bash avg 5.6s · exec avg 51s. **운영**: 7/11~18 ledger backfill commit `ddcede7` → push✓. cruft 정리 — `secondary_20260520/` 아카이브 삭제(86MB, 복원 태그 `pre-016-sync-backup-20260520` 유지) + `0.1.18.tgz` + 만료 pickup(5/21). **🪤 CLAUDE.md 유출 차단**: 활성 로컬 SoT에 CF D1·Polar product ID + D-023 매매/koreanpulse 참조 존재 → public repo 커밋 대신 `.gitignore` 처리(commit `9998576`) → push✓. 잔여 untracked = `geo_tracking.md`만. |
 
 ---
 
