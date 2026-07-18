@@ -61,6 +61,14 @@ cd "/mnt/c/Users/whdrn/Desktop/money/token-pulse" && cmd.exe /c "npx -y @whdrnr2
 | 5/26 | _ | _ | _ | _ | ✓ | dogfood $114.02 / 302 events. 커밋 0. |
 | 5/27 | _ | _ | _ | _ | ✓ | **v0.1.17 publish** (forecast·CSV/JSON export·weekly digest·trim suggestions). PMF 게이트 1회 우회 (결제 0건, 사용자 명시 결정). feat/pro-batch → main merge 완료. 7d $1,627.62 / 3,377 events (opus-4.7 98%). |
 | 6/28 | _ | _ | _ | _ | ✓ | **v0.1.19 구현·커밋·push (미발행)** — sub-agent & cache 비용 귀속(`agent_id` 컬럼·`subagent_costs` MCP tool·`subagents` CLI). PMF 1회 우회(D-040). commit 7687724 push 완료. 빌드된 MCP boots·tools/list 노출 확인. **→ v0.1.20 (미발행)** — 로컬 LLM 프록시 foundation(`token-meter proxy`·`local` CLI·`ttft_ms` 컬럼·OpenAI-compat `/v1/chat/completions` TTFT/TPS 계측·Ollama default). PMF **2차** 우회(같은 세션, D-041, build-spree 경고 고지 후 사용자 명시). 4-check ✅ (81 test pass·audit ALL HOLD·build OK). npm publish는 web-auth E404로 사용자 측 막힘→legacy auth 안내. 발행 시 0.1.18→0.1.20(두 기능 합본). |
+| 7/11 | _ | _ | _ | _ | ✓ | dogfood $73.84 / 878 events. **⚠️ 7/11~18 8행은 2026-07-18 일괄 backfill** (6/29~7/10 미기록 — OSS-maintain D-042 조용한 기간, daily ritual 중단). WSL bash ingest로 4일 갭(07-15~18) 채움. **모델 믹스 전환**: 기존 opus-4.7 단일 → opus-4.8 $333.6 · fable-5 $187.9 · sonnet-5 $185.3 3분할(7d). 직전 cmd.exe 집계 "$3.08"은 Windows/Codex subset 오독 — 실 WSL 7d = $711.22(5/17 절차 함정 재현, WSL home이 실사용). |
+| 7/12 | _ | _ | _ | _ | ✓ | dogfood $187.80 / 1617 events. |
+| 7/13 | _ | _ | _ | _ | ✓ | dogfood $61.76 / 372 events. |
+| 7/14 | _ | _ | _ | _ | ✓ | dogfood $30.41 / 647 events. |
+| 7/15 | _ | _ | _ | _ | ✓ | dogfood $165.81 / 1405 events. |
+| 7/16 | _ | _ | _ | _ | ✓ | dogfood $63.32 / 485 events. **v0.1.27·v0.1.28 publish** (CHANGELOG 07-16) — `token-meter audit` 명령 추가 + gating default-ON 수정(미인증 caller가 Pro+로 새던 버그, unlicensed→Free breaking). 이후 test 커밋 2건(7caea68·ea203a5). OSS-maintain 하 버그/보안 픽스. |
+| 7/17 | _ | _ | _ | _ | ✓ | dogfood $114.32 / 1150 events. (메모리: 07-17~18 3트랙 종료 시 0.1.28 배포 확정.) |
+| 7/18 | _ | _ | _ | _ | ✓ | dogfood $13.95 / 49 events (진행중, 오늘). **7d 누적 $711.22** / cache_r 895.4M · write 44.0M. 비싼/느린 도구: Read 2.95M resp_tok · Bash avg 5.6s · exec avg 51s. |
 
 ---
 
