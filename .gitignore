@@ -36,3 +36,4 @@ secrets/
 
 # Local Claude memory (project SoT, not committed)
 .claude/memory/
+CLAUDE.md
