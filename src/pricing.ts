@@ -50,6 +50,59 @@ export const PRICES: Record<string, ModelPrice> = {
   'gpt-5.3-codex-spark': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
 };
 
+// ---- Scheduled in-place rate changes --------------------------------------
+// Some PRICES rows carry an introductory rate that changes to a known,
+// different rate on a known future date (same model key, new numbers) — a
+// human has to remember to bump the row manually; nothing else enforces it.
+// checkScheduledRateChanges() is that enforcement: call it with the current
+// date (both scripts/quality-audit.cjs's own date-based check and
+// test/scheduled-rate-changes.test.ts do, so there are two independent
+// guardrails) to get back a non-empty list once the date has passed and the
+// row is still stale, so a missed manual bump fails loudly instead of
+// silently under/over-pricing every affected turn indefinitely.
+interface ScheduledRateChange {
+  model: string;
+  effectiveDate: string; // ISO yyyy-mm-dd — PRICES[model] must equal expectedRate on/after this date
+  expectedRate: ModelPrice;
+  note: string;
+}
+
+const SCHEDULED_RATE_CHANGES: ScheduledRateChange[] = [
+  {
+    model: 'claude-sonnet-5',
+    effectiveDate: '2026-09-01',
+    // Standard rate — same as claude-sonnet-4-6 above ($3/$15).
+    expectedRate: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
+    note: "claude-sonnet-5 introductory pricing ($2/$10) becomes the standard $3/$15 rate on 2026-09-01.",
+  },
+];
+
+/**
+ * Warnings for every scheduled rate change whose effective date has passed
+ * (relative to `now`) while PRICES still holds the pre-change rate. Empty
+ * once the row has been bumped, or before the effective date.
+ */
+export function checkScheduledRateChanges(now: Date = new Date()): string[] {
+  const todayIso = now.toISOString().slice(0, 10);
+  const warnings: string[] = [];
+  for (const change of SCHEDULED_RATE_CHANGES) {
+    if (todayIso < change.effectiveDate) continue;
+    const current = PRICES[change.model];
+    if (!current) continue;
+    const stale =
+      current.input !== change.expectedRate.input ||
+      current.output !== change.expectedRate.output ||
+      current.cacheRead !== change.expectedRate.cacheRead ||
+      current.cacheWrite5m !== change.expectedRate.cacheWrite5m;
+    if (stale) {
+      warnings.push(
+        `PRICES['${change.model}'] is stale as of ${todayIso}: ${change.note} (effective ${change.effectiveDate}).`,
+      );
+    }
+  }
+  return warnings;
+}
+
 function resolveModel(model: string): ModelPrice {
   const normalized = model.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[normalized]) return PRICES[normalized];

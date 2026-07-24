@@ -3,6 +3,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 
 const db = new Database(path.join(os.homedir(), '.tokenpulse', 'usage.db'));
 db.pragma('foreign_keys = ON');
@@ -73,34 +74,23 @@ const nullReq = db.prepare(`SELECT COUNT(*) c FROM token_events WHERE request_id
 nullReq === 0 ? pass('no NULL request_ids (all sources have keys)') : warn('null request_ids present', `${nullReq} rows fall back to (session_id, ts, model)`);
 
 console.log('\n=== 3. Pricing reproducibility ===');
-// Re-import pricing.ts via dynamic require isn't trivial in cjs; reproduce inline.
-// Keep this table in sync with src/pricing.ts — test/audit-pricing-sync.test.ts
-// extracts this literal and cross-checks it against src/pricing.ts on every run.
-const PRICES = {
-  'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
-  'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
-  'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
-  'claude-opus-4-6': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
-  'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
-  'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  'claude-opus-4':   { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  'claude-sonnet-5': { input: 2.0, output: 10.0, cacheRead: 0.20, cacheWrite5m: 2.50 },
-  'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
-  'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
-  'claude-sonnet-4':   { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
-  'claude-haiku-4-5':  { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite5m: 1.25 },
-  'claude-haiku-4':    { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite5m: 1.25 },
-  'gpt-5': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
-  'gpt-5-codex': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
-  'gpt-5-mini': { input: 0.25, output: 2.0, cacheRead: 0.025, cacheWrite5m: 0 },
-  'gpt-4o': { input: 2.5, output: 10.0, cacheRead: 1.25, cacheWrite5m: 0 },
-  'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite5m: 0 },
-  // H7 sync (2026-07-12) — new codex model rows added to src/pricing.ts.
-  'gpt-5.3-codex': { input: 1.75, output: 14.0, cacheRead: 0.175, cacheWrite5m: 0 },
-  'gpt-5.4': { input: 2.5, output: 15.0, cacheRead: 0.25, cacheWrite5m: 0 },
-  'gpt-5.5': { input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite5m: 0 },
-  'gpt-5.3-codex-spark': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
-};
+// Can't `import`/`require` src/pricing.ts directly (this is a plain .cjs
+// script, run standalone against a live sqlite file, and pricing.ts is ESM
+// TypeScript) — so PRICES is read straight out of src/pricing.ts's source
+// text at runtime instead of hand-copying the literal. Hand-copying used to
+// drift out of sync with src/pricing.ts (missing claude-opus-4-8 /
+// claude-sonnet-5 / claude-fable-5 rows, stale claude-opus-4-7 rate), which
+// made this audit's own self-check produce false positives/negatives. With
+// the extraction below there is only one PRICES table in the codebase, so
+// that class of drift can't happen again — see test/audit-pricing-sync.test.ts
+// for the regression guard on the extraction mechanism + the resolve()
+// fallback logic below, which is still a hand-maintained mirror.
+const pricingSrc = fs.readFileSync(path.join(__dirname, '../src/pricing.ts'), 'utf8');
+const pricesMatch = pricingSrc.match(/export const PRICES: Record<string, ModelPrice> = (\{[\s\S]*?\n\});/);
+if (!pricesMatch) {
+  throw new Error('quality-audit: could not find `export const PRICES: Record<string, ModelPrice> = {...};` in src/pricing.ts — did its format change?');
+}
+const PRICES = new Function(`return ${pricesMatch[1]};`)();
 function resolve(m) {
   const n = m.replace(/\[.*\]/, '').trim().toLowerCase();
   if (PRICES[n]) return PRICES[n];
@@ -127,6 +117,7 @@ function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
   const c = (input * p.input + output * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite5m) / 1_000_000;
   return Math.round(c * 1_000_000) / 1_000_000;
 }
+
 // Random sample across all history. Note: neither `ts` (event occurrence
 // time) nor `id` (insertion order) reliably identifies "which pricing.ts
 // was live when this row was priced" on a long-lived DB — force-reingest
@@ -191,6 +182,34 @@ mism === 0
   ? pass(`pricing recomputable (unstamped rows, ${sample.length - stampedCount} sampled)`)
   : warn('pricing mismatch on unstamped rows (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length - stampedCount} rows`);
 
+console.log('\n=== 3b. Scheduled pricing rate changes ===');
+// Fires purely on wall-clock date vs. the PRICES table itself — unlike the
+// ingested_at-stamped check above, this doesn't depend on any DB row
+// existing/being sampled, so a forgotten manual bump can't hide behind "no
+// matching rows happened to land in this run's random sample". claude-sonnet-5
+// is introductory $2/$10 through 2026-08-31 and becomes the standard $3/$15
+// rate (same as claude-sonnet-4-6) on 2026-09-01 — see the dated comment in
+// src/pricing.ts. Keep the 2026-09-01 date literal here in sync with that
+// comment and with SCHEDULED_RATE_CHANGES above.
+{
+  const today = new Date().toISOString().slice(0, 10);
+  const changeDate = '2026-09-01';
+  if (today < changeDate) {
+    pass(`claude-sonnet-5 introductory pricing not yet due to expire (effective ${changeDate}, today ${today})`);
+  } else {
+    const current = PRICES['claude-sonnet-5'];
+    const standard = PRICES['claude-sonnet-4-6']; // the known post-change target rate
+    const bumped = current && standard && current.input === standard.input && current.output === standard.output
+      && current.cacheRead === standard.cacheRead && current.cacheWrite5m === standard.cacheWrite5m;
+    bumped
+      ? pass(`claude-sonnet-5 pricing bumped to the standard rate for its ${changeDate} scheduled change`)
+      : fail(
+          'claude-sonnet-5 introductory pricing expired without being bumped',
+          `today=${today} >= ${changeDate}; PRICES['claude-sonnet-5']=${JSON.stringify(current)}, expected the standard rate ${JSON.stringify(standard)} — bump the row in src/pricing.ts`,
+        );
+  }
+}
+
 console.log('\n=== 4. Temporal sanity ===');
 const future = db.prepare(`SELECT COUNT(*) c FROM token_events WHERE ts > ?`).get(Date.now() + 60_000).c;
 future === 0 ? pass('no future timestamps') : fail('future ts', `${future} rows`);
@@ -239,7 +258,6 @@ firingsOrphan === 0 ? pass('no orphan rule firings') : fail('orphan firings', `$
 
 console.log('\n=== 8. Ingest state consistency ===');
 const ingestRows = db.prepare(`SELECT COUNT(*) c FROM ingest_state`).get().c;
-const fs = require('fs');
 let missing = 0;
 for (const r of db.prepare('SELECT file FROM ingest_state').all()) {
   if (!fs.existsSync(r.file)) missing++;
