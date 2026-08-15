@@ -5,6 +5,28 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.29] — 2026-08-15
+
+### Added
+- **Scheduled-rate-change guardrail (`checkScheduledRateChanges`).**
+  `claude-sonnet-5` currently ships introductory pricing ($2/$10 per Mtok) and
+  reverts to the standard `claude-sonnet-4-6` rate ($3/$15) on **2026-09-01**.
+  That row has to be bumped by hand, and a missed bump would have
+  under-priced every sonnet-5 turn indefinitely and silently. The guardrail
+  compares `PRICES['claude-sonnet-5']` against the scheduled rate once the
+  effective date has passed and returns a warning while the row is still
+  stale — **a missed bump now fails loudly instead of quietly mispricing.**
+
+  Shipping this before 2026-09-01 is the whole point: 0.1.28 (published
+  2026-07-17) predates the guardrail, so any install still on 0.1.28 after
+  the switchover keeps reporting the introductory rate with no warning.
+
+### Notes
+- No behavior change for anyone before 2026-09-01 — the check is inert until
+  the effective date.
+- Also included since 0.1.28: dogfood ledger backfill (7/11–7/18) and
+  `CLAUDE.md` moved to `.gitignore` as a local operating SoT (docs only).
+
 ## [0.1.28] — 2026-07-16
 
 ### Fixed
