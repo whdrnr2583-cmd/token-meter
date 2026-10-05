@@ -5,25 +5,23 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.29] — 2026-08-15
+## [0.1.29] — 2026-10-06
 
-### Added
-- **Scheduled-rate-change guardrail (`checkScheduledRateChanges`).**
-  `claude-sonnet-5` currently ships introductory pricing ($2/$10 per Mtok) and
-  reverts to the standard `claude-sonnet-4-6` rate ($3/$15) on **2026-09-01**.
-  That row has to be bumped by hand, and a missed bump would have
-  under-priced every sonnet-5 turn indefinitely and silently. The guardrail
-  compares `PRICES['claude-sonnet-5']` against the scheduled rate once the
-  effective date has passed and returns a warning while the row is still
-  stale — **a missed bump now fails loudly instead of quietly mispricing.**
-
-  Shipping this before 2026-09-01 is the whole point: 0.1.28 (published
-  2026-07-17) predates the guardrail, so any install still on 0.1.28 after
-  the switchover keeps reporting the introductory rate with no warning.
+### Fixed
+- **Sonnet 5 price.** The increase from $2/$10 to $3/$15 that had been
+  scheduled for 2026-09-01 was cancelled, so $2/$10 is the standard price.
+  The scheduled-change registration and the audit script's 3b check, both of
+  which assumed that increase, were removed.
+- **Rate table gained `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-5`
+  and `claude-sonnet-5-5`.** Before, these were priced through the family
+  fallback rates. That made Opus 5.5 input, output and cache writes 25% too
+  high and its cache reads 2.5x too high, and Fable 5.1 cache reads 4x too
+  high.
 
 ### Notes
-- No behavior change for anyone before 2026-09-01 — the check is inert until
-  the effective date.
+- `checkScheduledRateChanges()` is kept. No change is registered, so it
+  returns an empty array. Rows already stored are not recomputed (existing
+  policy).
 - Also included since 0.1.28: dogfood ledger backfill (7/11–7/18) and
   `CLAUDE.md` moved to `.gitignore` as a local operating SoT (docs only).
 

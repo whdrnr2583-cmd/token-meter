@@ -1,6 +1,6 @@
-// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-06-29.
+// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-10-06.
 // Single source of truth. Heuristics only; no LLM call.
-// Source: platform.claude.com models/pricing. Opus 4.6+ is $5/$25 (was $15/$75 on Opus 4.0/4.1).
+// Source: platform.claude.com models/pricing. Opus 4.5 through Opus 5 are $5/$25; Opus 5.5 is $4/$20 (Opus 4.0/4.1 were $15/$75).
 
 export interface ModelPrice {
   input: number;
@@ -17,15 +17,20 @@ export interface ModelPrice {
 // instead of re-deriving/duplicating it.
 export const PRICES: Record<string, ModelPrice> = {
   // Anthropic — cacheRead = 0.1x input, cacheWrite5m = 1.25x input.
+  // Exceptions: cacheRead is 0.025x input for claude-fable-5-1 and 0.05x for claude-opus-5-5.
+  'claude-fable-5-1': { input: 10.0, output: 50.0, cacheRead: 0.25, cacheWrite5m: 12.5 },
   'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
+  'claude-opus-5-5': { input: 4.0, output: 20.0, cacheRead: 0.2, cacheWrite5m: 5.0 },
+  'claude-opus-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-6': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  // Sonnet 5 — introductory pricing through 2026-08-31; becomes $3/$15
-  // (same as claude-sonnet-4-6 below) on 2026-09-01. Bump this row manually then.
+  'claude-sonnet-5-5': { input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite5m: 2.5 },
+  // Sonnet 5 — $2/$10 is the standard price. The increase to $3/$15 that had been
+  // scheduled for 2026-09-01 was cancelled (official pricing page footnote, checked 2026-10-06).
   'claude-sonnet-5': { input: 2.0, output: 10.0, cacheRead: 0.20, cacheWrite5m: 2.50 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
@@ -55,9 +60,9 @@ export const PRICES: Record<string, ModelPrice> = {
 // different rate on a known future date (same model key, new numbers) — a
 // human has to remember to bump the row manually; nothing else enforces it.
 // checkScheduledRateChanges() is that enforcement: call it with the current
-// date (both scripts/quality-audit.cjs's own date-based check and
-// test/scheduled-rate-changes.test.ts do, so there are two independent
-// guardrails) to get back a non-empty list once the date has passed and the
+// date (test/scheduled-rate-changes.test.ts does; scripts/quality-audit.cjs's
+// separate date-based 3b check was removed with the cancelled sonnet-5 entry)
+// to get back a non-empty list once the date has passed and the
 // row is still stale, so a missed manual bump fails loudly instead of
 // silently under/over-pricing every affected turn indefinitely.
 interface ScheduledRateChange {
@@ -67,15 +72,9 @@ interface ScheduledRateChange {
   note: string;
 }
 
-const SCHEDULED_RATE_CHANGES: ScheduledRateChange[] = [
-  {
-    model: 'claude-sonnet-5',
-    effectiveDate: '2026-09-01',
-    // Standard rate — same as claude-sonnet-4-6 above ($3/$15).
-    expectedRate: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
-    note: "claude-sonnet-5 introductory pricing ($2/$10) becomes the standard $3/$15 rate on 2026-09-01.",
-  },
-];
+// None registered at present. The only prior entry (claude-sonnet-5, 2026-09-01)
+// was removed because Anthropic cancelled that price increase.
+const SCHEDULED_RATE_CHANGES: ScheduledRateChange[] = [];
 
 /**
  * Warnings for every scheduled rate change whose effective date has passed

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateUsd } from '../src/pricing.js';
+import { estimateUsd, PRICES } from '../src/pricing.js';
 
 test('Opus 4.7 typical message', () => {
   const v = estimateUsd({ model: 'claude-opus-4-7', input: 10, output: 500, cacheRead: 5000, cacheWrite: 1000 });
@@ -104,4 +104,33 @@ test('a model ID matching no known family substring still gets non-zero cost (ne
   const sonnet5 = estimateUsd({ model: 'claude-sonnet-4-6', input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0 });
   assert.ok(v > 0, 'unrecognized model must not price at $0');
   assert.equal(v, sonnet5, 'unrecognized model falls back to the default Sonnet rate');
+});
+
+test('current Anthropic models (opus-5-5, opus-5, sonnet-5-5, fable-5-1) price at their own rows, not the family fallback', () => {
+  const usage = { input: 1000, output: 1000, cacheRead: 100000, cacheWrite: 1000 };
+  // The opus-5 and sonnet-5-5 rows equal their family-fallback rates, so the value
+  // assertions below alone would still pass if those rows were deleted.
+  for (const key of ['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-fable-5-1']) {
+    assert.ok(key in PRICES, `PRICES must carry its own row for ${key}`);
+  }
+  // opus-5-5 ($4/$20, cacheRead 0.2, cacheWrite5m 5.0):
+  // (1000*4 + 1000*20 + 100000*0.2 + 1000*5.0) / 1e6 = (4000 + 20000 + 20000 + 5000) / 1e6 = 0.049
+  assert.equal(estimateUsd({ model: 'claude-opus-5-5', ...usage }), 0.049);
+  // opus-5 ($5/$25, cacheRead 0.5, cacheWrite5m 6.25):
+  // (1000*5 + 1000*25 + 100000*0.5 + 1000*6.25) / 1e6 = (5000 + 25000 + 50000 + 6250) / 1e6 = 0.08625
+  assert.equal(estimateUsd({ model: 'claude-opus-5', ...usage }), 0.08625);
+  // sonnet-5-5 ($2/$10, cacheRead 0.2, cacheWrite5m 2.5):
+  // (1000*2 + 1000*10 + 100000*0.2 + 1000*2.5) / 1e6 = (2000 + 10000 + 20000 + 2500) / 1e6 = 0.0345
+  assert.equal(estimateUsd({ model: 'claude-sonnet-5-5', ...usage }), 0.0345);
+  // fable-5-1 ($10/$50, cacheRead 0.25, cacheWrite5m 12.5):
+  // (1000*10 + 1000*50 + 100000*0.25 + 1000*12.5) / 1e6 = (10000 + 50000 + 25000 + 12500) / 1e6 = 0.0975
+  assert.equal(estimateUsd({ model: 'claude-fable-5-1', ...usage }), 0.0975);
+});
+
+test('a bracketed context-window suffix prices claude-opus-5-5[1m] the same as claude-opus-5-5', () => {
+  const usage = { input: 1000, output: 1000, cacheRead: 100000, cacheWrite: 1000 };
+  assert.equal(
+    estimateUsd({ model: 'claude-opus-5-5[1m]', ...usage }),
+    estimateUsd({ model: 'claude-opus-5-5', ...usage }),
+  );
 });

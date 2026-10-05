@@ -136,18 +136,19 @@ function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
 // NULL ingested_at (pre-migration, or pricing.ts changed after they were
 // ingested) fall back to the existing warn-only check.
 // Some pricing.ts rows change rate *in place* on a known future date (same
-// model key, new numbers) — e.g. claude-sonnet-5 is introductory $2/$10 through
-// 2026-08-31 and becomes $3/$15 on 2026-09-01. A row stamped before that date
+// model key, new numbers). None are registered at present (the former
+// claude-sonnet-5 2026-09-01 entry was removed because that increase was
+// cancelled). A row stamped before such a date
 // was priced by the then-current pricing.ts; once the row is bumped, recompute
 // against today's table naturally diverges from the (correct-at-the-time)
 // stored usd_estimate. That is an expected historical snapshot across a
 // scheduled rate change, NOT a pricing bug, so such a row is downgraded to a
 // warning even though it is ingested_at-stamped. A stamped mismatch on any
-// other model, or on this model for a row stamped on/after the change date,
+// other model, or on a registered model for a row stamped on/after its change date,
 // stays a hard failure. Keep this in sync with the dated comments in
 // src/pricing.ts. Dates are ISO-comparable to the stamped ISO timestamp.
 const SCHEDULED_RATE_CHANGES = {
-  'claude-sonnet-5': '2026-09-01', // intro $2/$10 → standard $3/$15
+  // none registered
 };
 const sample = db.prepare(`SELECT * FROM token_events ORDER BY RANDOM() LIMIT 200`).all();
 let mism = 0;
@@ -181,34 +182,6 @@ mismStampedPreChange === 0
 mism === 0
   ? pass(`pricing recomputable (unstamped rows, ${sample.length - stampedCount} sampled)`)
   : warn('pricing mismatch on unstamped rows (may be expected historical price snapshots, not necessarily a bug)', `${mism}/${sample.length - stampedCount} rows`);
-
-console.log('\n=== 3b. Scheduled pricing rate changes ===');
-// Fires purely on wall-clock date vs. the PRICES table itself — unlike the
-// ingested_at-stamped check above, this doesn't depend on any DB row
-// existing/being sampled, so a forgotten manual bump can't hide behind "no
-// matching rows happened to land in this run's random sample". claude-sonnet-5
-// is introductory $2/$10 through 2026-08-31 and becomes the standard $3/$15
-// rate (same as claude-sonnet-4-6) on 2026-09-01 — see the dated comment in
-// src/pricing.ts. Keep the 2026-09-01 date literal here in sync with that
-// comment and with SCHEDULED_RATE_CHANGES above.
-{
-  const today = new Date().toISOString().slice(0, 10);
-  const changeDate = '2026-09-01';
-  if (today < changeDate) {
-    pass(`claude-sonnet-5 introductory pricing not yet due to expire (effective ${changeDate}, today ${today})`);
-  } else {
-    const current = PRICES['claude-sonnet-5'];
-    const standard = PRICES['claude-sonnet-4-6']; // the known post-change target rate
-    const bumped = current && standard && current.input === standard.input && current.output === standard.output
-      && current.cacheRead === standard.cacheRead && current.cacheWrite5m === standard.cacheWrite5m;
-    bumped
-      ? pass(`claude-sonnet-5 pricing bumped to the standard rate for its ${changeDate} scheduled change`)
-      : fail(
-          'claude-sonnet-5 introductory pricing expired without being bumped',
-          `today=${today} >= ${changeDate}; PRICES['claude-sonnet-5']=${JSON.stringify(current)}, expected the standard rate ${JSON.stringify(standard)} — bump the row in src/pricing.ts`,
-        );
-  }
-}
 
 console.log('\n=== 4. Temporal sanity ===');
 const future = db.prepare(`SELECT COUNT(*) c FROM token_events WHERE ts > ?`).get(Date.now() + 60_000).c;
