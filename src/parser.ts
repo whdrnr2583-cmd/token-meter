@@ -108,7 +108,13 @@ export function parseJsonlFile(
         const input = m.usage.input_tokens ?? 0;
         const output = m.usage.output_tokens ?? 0;
         const cacheRead = m.usage.cache_read_input_tokens ?? 0;
-        const cacheWrite = m.usage.cache_creation_input_tokens ?? 0;
+        const cc = m.usage.cache_creation;
+        const cacheWrite =
+          m.usage.cache_creation_input_tokens ??
+          (cc ? (cc.ephemeral_5m_input_tokens ?? 0) + (cc.ephemeral_1h_input_tokens ?? 0) : 0);
+        // Only an explicit 1h count is billed at the 1h rate; any remainder
+        // (and logs without the cache_creation object) stays at the 5m rate.
+        const cacheWrite1h = Math.min(Math.max(cc?.ephemeral_1h_input_tokens ?? 0, 0), cacheWrite);
         if (input + output + cacheRead + cacheWrite > 0) {
           const event: TokenEvent = {
             ts,
@@ -122,6 +128,7 @@ export function parseJsonlFile(
             output_tokens: output,
             cache_read_tokens: cacheRead,
             cache_write_tokens: cacheWrite,
+            cache_write_1h_tokens: cacheWrite1h,
             total_duration_ms: null,
             tps: null,
             usd_estimate: estimateUsd({
@@ -130,6 +137,7 @@ export function parseJsonlFile(
               output,
               cacheRead,
               cacheWrite,
+              cacheWrite1h,
             }),
             agent_id: agentId,
           };

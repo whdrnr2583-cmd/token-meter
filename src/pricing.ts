@@ -1,4 +1,4 @@
-// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-10-06.
+// Anthropic + OpenAI pricing (USD per million tokens) — updated 2026-10-16.
 // Single source of truth. Heuristics only; no LLM call.
 // Source: platform.claude.com models/pricing. Opus 4.5 through Opus 5 are $5/$25; Opus 5.5 is $4/$20 (Opus 4.0/4.1 were $15/$75).
 
@@ -7,6 +7,14 @@ export interface ModelPrice {
   output: number;
   cacheRead: number;
   cacheWrite5m: number; // ephemeral 5m (Anthropic-specific; OpenAI has no analog → 0)
+  // ephemeral 1h cache write. Optional: when absent it is derived by
+  // cacheWrite1hRate() as 2x input for rows that charge for cache writes
+  // (every Anthropic row), 0 otherwise. Only set it for a row that deviates.
+  cacheWrite1h?: number;
+  // Optional long-prompt tier: a request whose prompt (input + cache read +
+  // cache write tokens) exceeds `above` is billed entirely at these rates.
+  // Judged per request (per message). The row's own numbers are the short tier.
+  longPrompt?: { above: number; input: number; output: number; cacheRead: number; cacheWrite5m: number };
 }
 
 // Exported (in addition to modelRates()/estimateUsd() below) so callers that
@@ -17,7 +25,7 @@ export interface ModelPrice {
 // instead of re-deriving/duplicating it.
 export const PRICES: Record<string, ModelPrice> = {
   // Anthropic — cacheRead = 0.1x input, cacheWrite5m = 1.25x input.
-  // Exceptions: cacheRead is 0.025x input for claude-fable-5-1 and 0.05x for claude-opus-5-5.
+  // Exceptions: cacheRead is 0.025x input for claude-fable-5-1, and 0.05x for claude-opus-5-5 and claude-sonnet-5-5.
   'claude-fable-5-1': { input: 10.0, output: 50.0, cacheRead: 0.25, cacheWrite5m: 12.5 },
   'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 12.5 },
   'claude-opus-5-5': { input: 4.0, output: 20.0, cacheRead: 0.2, cacheWrite5m: 5.0 },
@@ -28,13 +36,20 @@ export const PRICES: Record<string, ModelPrice> = {
   'claude-opus-4-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite5m: 6.25 },
   'claude-opus-4-1': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite5m: 18.75 },
-  'claude-sonnet-5-5': { input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite5m: 2.5 },
+  'claude-sonnet-5-5': { input: 2.0, output: 10.0, cacheRead: 0.1, cacheWrite5m: 2.5 },
   // Sonnet 5 — $2/$10 is the standard price. The increase to $3/$15 that had been
   // scheduled for 2026-09-01 was cancelled (official pricing page footnote, checked 2026-10-06).
   'claude-sonnet-5': { input: 2.0, output: 10.0, cacheRead: 0.20, cacheWrite5m: 2.50 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
   'claude-sonnet-4': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite5m: 3.75 },
+  // Haiku 5.5 — checked 2026-10-16 at https://platform.claude.com/docs/en/about-claude/pricing.md.
+  // Row rate is for prompts of 100k tokens or fewer; requests over 100k tokens (input + cache
+  // read + cache write, judged per request) are billed at the longPrompt rates.
+  'claude-haiku-5-5': {
+    input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite5m: 0.125,
+    longPrompt: { above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite5m: 0.625 },
+  },
   'claude-haiku-4-5': { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite5m: 1.25 },
   'claude-haiku-4': { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite5m: 1.25 },
   // OpenAI (estimates — refine as official pricing updates)
@@ -53,6 +68,17 @@ export const PRICES: Record<string, ModelPrice> = {
   // using the gpt-5 base rate as a placeholder rather than inventing a number.
   // TODO verify once OpenAI publishes API pricing for this model.
   'gpt-5.3-codex-spark': { input: 1.25, output: 10.0, cacheRead: 0.125, cacheWrite5m: 0 },
+  // GPT-5.6 and GPT-6 families — Standard tier, short-context (<=272K input tokens) rates,
+  // checked 2026-10-16 at https://developers.openai.com/api/docs/pricing.md. Prompts over
+  // 272K tokens, Batch/Flex/Priority/Ultrafast tiers and cache-write fees are not modelled.
+  // gpt-5.6-sol's $4/$20 is promotional pricing, listed as available at least through 2026-11-21.
+  'gpt-6-astra': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite5m: 0 },
+  'gpt-6.1-sol': { input: 2.0, output: 10.0, cacheRead: 0.1, cacheWrite5m: 0 },
+  'gpt-6-sol': { input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite5m: 0 },
+  'gpt-6-luna': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite5m: 0 },
+  'gpt-5.6-sol': { input: 4.0, output: 20.0, cacheRead: 0.4, cacheWrite5m: 0 },
+  'gpt-5.6-terra': { input: 2.0, output: 12.0, cacheRead: 0.2, cacheWrite5m: 0 },
+  'gpt-5.6-luna': { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite5m: 0 },
 };
 
 // ---- Scheduled in-place rate changes --------------------------------------
@@ -141,19 +167,38 @@ export function modelRates(model: string): ModelPrice {
   return resolveModel(model);
 }
 
+/**
+ * $/M for 1-hour cache writes on a rate set (a model row or its longPrompt
+ * tier): the explicit `cacheWrite1h` if the row carries one, else 2x input when
+ * the row charges for cache writes at all (official table: 1h = 2x base input),
+ * else 0 (OpenAI rows have no cache-write fee).
+ */
+export function cacheWrite1hRate(p: { input: number; cacheWrite5m: number; cacheWrite1h?: number }): number {
+  if (p.cacheWrite1h !== undefined) return p.cacheWrite1h;
+  return p.cacheWrite5m > 0 ? p.input * 2 : 0;
+}
+
 export function estimateUsd(opts: {
   model: string;
   input: number;
   output: number;
   cacheRead: number;
+  /** Total cache-write tokens (5m + 1h). */
   cacheWrite: number;
+  /** Portion of `cacheWrite` written to the 1-hour cache (billed at 2x input). Omitted = all 5m. */
+  cacheWrite1h?: number;
 }): number {
-  const p = resolveModel(opts.model);
+  const base = resolveModel(opts.model);
+  const promptTokens = opts.input + opts.cacheRead + opts.cacheWrite;
+  const p = base.longPrompt && promptTokens > base.longPrompt.above ? base.longPrompt : base;
+  const write1h = Math.min(Math.max(opts.cacheWrite1h ?? 0, 0), opts.cacheWrite);
+  const write5m = opts.cacheWrite - write1h;
   const cost =
     (opts.input * p.input +
       opts.output * p.output +
       opts.cacheRead * p.cacheRead +
-      opts.cacheWrite * p.cacheWrite5m) /
+      write5m * p.cacheWrite5m +
+      write1h * cacheWrite1hRate(p)) /
     1_000_000;
   return Math.round(cost * 1_000_000) / 1_000_000;
 }

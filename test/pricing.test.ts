@@ -119,12 +119,46 @@ test('current Anthropic models (opus-5-5, opus-5, sonnet-5-5, fable-5-1) price a
   // opus-5 ($5/$25, cacheRead 0.5, cacheWrite5m 6.25):
   // (1000*5 + 1000*25 + 100000*0.5 + 1000*6.25) / 1e6 = (5000 + 25000 + 50000 + 6250) / 1e6 = 0.08625
   assert.equal(estimateUsd({ model: 'claude-opus-5', ...usage }), 0.08625);
-  // sonnet-5-5 ($2/$10, cacheRead 0.2, cacheWrite5m 2.5):
-  // (1000*2 + 1000*10 + 100000*0.2 + 1000*2.5) / 1e6 = (2000 + 10000 + 20000 + 2500) / 1e6 = 0.0345
-  assert.equal(estimateUsd({ model: 'claude-sonnet-5-5', ...usage }), 0.0345);
+  // sonnet-5-5 ($2/$10, cacheRead 0.1 = 0.05x input, cacheWrite5m 2.5):
+  // (1000*2 + 1000*10 + 100000*0.1 + 1000*2.5) / 1e6 = (2000 + 10000 + 10000 + 2500) / 1e6 = 0.0245
+  assert.equal(estimateUsd({ model: 'claude-sonnet-5-5', ...usage }), 0.0245);
   // fable-5-1 ($10/$50, cacheRead 0.25, cacheWrite5m 12.5):
   // (1000*10 + 1000*50 + 100000*0.25 + 1000*12.5) / 1e6 = (10000 + 50000 + 25000 + 12500) / 1e6 = 0.0975
   assert.equal(estimateUsd({ model: 'claude-fable-5-1', ...usage }), 0.0975);
+});
+
+test('claude-haiku-5-5 prices at its own row ($0.10/$0.50), not the Haiku 4.5 family fallback', () => {
+  // cacheRead 90000 keeps the prompt (92,000) in the <=100k tier; the >100k tier is tested separately below.
+  const usage = { input: 1000, output: 1000, cacheRead: 90000, cacheWrite: 1000 };
+  assert.ok('claude-haiku-5-5' in PRICES, 'PRICES must carry its own row for claude-haiku-5-5');
+  // haiku-5-5 ($0.10/$0.50, cacheRead 0.01, cacheWrite5m 0.125):
+  // (1000*0.1 + 1000*0.5 + 90000*0.01 + 1000*0.125) / 1e6 = (100 + 500 + 900 + 125) / 1e6 = 0.001625
+  const expected = 0.001625;
+  assert.equal(estimateUsd({ model: 'claude-haiku-5-5', ...usage }), expected);
+  // dated id and bracketed context-window suffix resolve to the same row
+  assert.equal(estimateUsd({ model: 'claude-haiku-5-5-20261001', ...usage }), expected);
+  assert.equal(estimateUsd({ model: 'claude-haiku-5-5[1m]', ...usage }), expected);
+  // the old family fallback (haiku-4-5, $1/$5) would be an order of magnitude higher
+  assert.ok(estimateUsd({ model: 'claude-haiku-4-5', ...usage }) > expected * 5);
+});
+
+test('GPT-5.6 and GPT-6 families price at their own Standard short-context rows, not the gpt-5 / Sonnet fallbacks', () => {
+  const usage = { input: 1000, output: 1000, cacheRead: 100000, cacheWrite: 1000 };
+  // [model, expected] — (1000*in + 1000*out + 100000*cacheRead + 1000*0) / 1e6; OpenAI rows carry no cache-write fee.
+  const cases: Array<[string, number]> = [
+    ['gpt-6-astra', 0.16], //   ($10/$50, cached 1.0)   (10000 + 50000 + 100000) / 1e6
+    ['gpt-6.1-sol', 0.022], //  ($2/$10, cached 0.1)    (2000 + 10000 + 10000) / 1e6
+    ['gpt-6-sol', 0.032], //    ($2/$10, cached 0.2)    (2000 + 10000 + 20000) / 1e6
+    ['gpt-6-luna', 0.0016], //  ($0.10/$0.50, cached 0.01) (100 + 500 + 1000) / 1e6
+    ['gpt-5.6-sol', 0.064], //  ($4/$20, cached 0.4)    (4000 + 20000 + 40000) / 1e6
+    ['gpt-5.6-terra', 0.034], //($2/$12, cached 0.2)    (2000 + 12000 + 20000) / 1e6
+    ['gpt-5.6-luna', 0.0034], //($0.20/$1.20, cached 0.02) (200 + 1200 + 2000) / 1e6
+  ];
+  for (const [model, expected] of cases) {
+    assert.ok(model in PRICES, `PRICES must carry its own row for ${model}`);
+    assert.equal(PRICES[model]!.cacheWrite5m, 0, `${model} has no 5m cache-write fee in this table`);
+    assert.equal(estimateUsd({ model, ...usage }), expected, model);
+  }
 });
 
 test('a bracketed context-window suffix prices claude-opus-5-5[1m] the same as claude-opus-5-5', () => {
@@ -133,4 +167,38 @@ test('a bracketed context-window suffix prices claude-opus-5-5[1m] the same as c
     estimateUsd({ model: 'claude-opus-5-5[1m]', ...usage }),
     estimateUsd({ model: 'claude-opus-5-5', ...usage }),
   );
+});
+
+// Haiku 5.5 bills a request at the higher long-prompt rate when its prompt
+// (input + cache read + cache write) exceeds 100,000 tokens. Judged per request.
+test('Haiku 5.5 long-prompt tier boundary: 99,999 / 100,000 stay short, 100,001 goes long', () => {
+  const at = (input: number) => estimateUsd({ model: 'claude-haiku-5-5', input, output: 1000, cacheRead: 0, cacheWrite: 0 });
+  // short: input*0.10 + 1000*0.50 ; long: input*0.50 + 1000*2.50
+  assert.equal(at(99_999), Math.round(((99_999 * 0.1 + 1000 * 0.5) / 1e6) * 1e6) / 1e6);
+  assert.equal(at(100_000), 0.0105); // (100000*0.1 + 500)/1e6
+  assert.equal(at(100_001), 0.052501); // (100001*0.5 + 2500)/1e6 = 52500.5/1e6 rounded to 6dp
+});
+
+test('Haiku 5.5 long-prompt tier sums input + cache read + cache write', () => {
+  // 60k + 30k + 10k = 100k exactly -> short rates
+  const atLimit = estimateUsd({ model: 'claude-haiku-5-5', input: 60_000, output: 1000, cacheRead: 30_000, cacheWrite: 10_000 });
+  // (60000*0.1 + 1000*0.5 + 30000*0.01 + 10000*0.125)/1e6 = (6000+500+300+1250)/1e6
+  assert.equal(atLimit, 0.00805);
+  // 60k + 30k + 10k + 1 -> long rates for every component
+  const over = estimateUsd({ model: 'claude-haiku-5-5', input: 60_000, output: 1000, cacheRead: 30_000, cacheWrite: 10_001 });
+  // (60000*0.5 + 1000*2.5 + 30000*0.05 + 10001*0.625)/1e6 = (30000+2500+1500+6250.625)/1e6
+  assert.equal(over, 0.040251);
+  // cache read alone pushes a tiny-input request over the line
+  const cacheOnly = estimateUsd({ model: 'claude-haiku-5-5', input: 10, output: 0, cacheRead: 100_001, cacheWrite: 0 });
+  // (10*0.5 + 100001*0.05)/1e6 = 5005.05/1e6
+  assert.equal(cacheOnly, 0.005005);
+});
+
+test('dated Haiku 5.5 id uses the long-prompt tier; other models ignore prompt size', () => {
+  const dated = estimateUsd({ model: 'claude-haiku-5-5-20261001', input: 200_000, output: 0, cacheRead: 0, cacheWrite: 0 });
+  assert.equal(dated, 0.1); // 200000*0.5/1e6
+  // Sonnet 5.5 has no long tier: cost is linear in tokens
+  const small = estimateUsd({ model: 'claude-sonnet-5-5', input: 1000, output: 0, cacheRead: 0, cacheWrite: 0 });
+  const big = estimateUsd({ model: 'claude-sonnet-5-5', input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 });
+  assert.equal(big, small * 1000);
 });

@@ -221,6 +221,30 @@ test('a low-cost model (sonnet) mixed with a high-cost model only flags the high
   assert.deepEqual(findings[0]!.costEventIds, ['session:claude-code:sess-opus']);
 });
 
+test('claude-opus-5-5 ($20/M output) is flagged as high-cost while claude-sonnet-5-5 ($10/M) is not', () => {
+  const db = freshDb();
+  seedSession(db, {
+    sessionId: 'sess-opus55',
+    model: 'claude-opus-5-5',
+    eventCount: 2,
+    outputPerEvent: LOW_OUTPUT_PER_EVENT,
+    usdPerEvent: 0.05,
+  });
+  seedSession(db, {
+    sessionId: 'sess-sonnet55',
+    model: 'claude-sonnet-5-5',
+    eventCount: 2,
+    outputPerEvent: LOW_OUTPUT_PER_EVENT,
+    usdPerEvent: 0.02,
+  });
+
+  const findings = highCostModelSignalDetector(ctxFor(db));
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]!.metrics.model, 'claude-opus-5-5');
+  assert.deepEqual(findings[0]!.costEventIds, ['session:claude-code:sess-opus55']);
+});
+
 test('folds a project cost-concentration note into the top finding\'s evidence', () => {
   const db = freshDb();
   for (const id of ['sess-a', 'sess-b', 'sess-c']) {

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { modelRates } from './pricing.js';
+import { cacheWrite1hRate, modelRates } from './pricing.js';
 
 export interface OverviewRow {
   total_input: number;
@@ -393,7 +393,8 @@ export function cacheStats(
         model,
         COALESCE(SUM(input_tokens), 0)        AS input,
         COALESCE(SUM(cache_read_tokens), 0)   AS cache_read,
-        COALESCE(SUM(cache_write_tokens), 0)  AS cache_write
+        COALESCE(SUM(cache_write_tokens), 0)  AS cache_write,
+        COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h
        FROM token_events
        WHERE ts >= ? AND ts <= ?${sc.clause}
        GROUP BY model`,
@@ -403,6 +404,7 @@ export function cacheStats(
       input: number;
       cache_read: number;
       cache_write: number;
+      cache_write_1h: number;
     }>;
   let total_input = 0;
   let total_cache_read = 0;
@@ -415,7 +417,8 @@ export function cacheStats(
     total_cache_read += r.cache_read;
     total_cache_write += r.cache_write;
     savings_usd += (r.cache_read * (p.input - p.cacheRead)) / 1_000_000;
-    write_cost_usd += (r.cache_write * p.cacheWrite5m) / 1_000_000;
+    write_cost_usd +=
+      ((r.cache_write - r.cache_write_1h) * p.cacheWrite5m + r.cache_write_1h * cacheWrite1hRate(p)) / 1_000_000;
   }
   const readSide = total_input + total_cache_read;
   return {

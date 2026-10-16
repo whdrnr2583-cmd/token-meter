@@ -172,7 +172,7 @@ Pro+ ships once Pro sign-ups + community demand confirm the segment.
 
 - **M1** ✅ Claude Code parsing, MCP/tool breakdown, hourly stats
 - **M2** ✅ Codex integration
-- **M3** Pro tier ($5), Polar.sh billing, license activation
+- **M3** ✅ Pro tier ($5), Polar.sh billing, license activation
 - **M4+** Pro+ (local LLM proxy, GPU tracking), conditional on demand
 
 ## Privacy & security

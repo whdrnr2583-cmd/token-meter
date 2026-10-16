@@ -5,6 +5,11 @@ export interface ClaudeUsage {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+  // Per-TTL split of cache_creation_input_tokens (absent in older logs).
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  };
   service_tier?: string;
 }
 
@@ -59,6 +64,9 @@ export interface TokenEvent {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  // Portion of cache_write_tokens written to the 1-hour cache (billed at 2x
+  // input instead of 1.25x). Absent/0 = all 5m. Never exceeds cache_write_tokens.
+  cache_write_1h_tokens?: number;
   total_duration_ms: number | null;
   tps: number | null;
   // Time to first token in ms — only measured for local proxy-captured

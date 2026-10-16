@@ -15,9 +15,10 @@
  * this file ranks models by their $/M *output* rate (the dominant cost
  * driver on most sessions) and treats a model as high-cost once its rate is
  * within HIGH_COST_TIER_RATIO of the single highest output rate currently in
- * PRICES. At today's rates (see ../../pricing.ts) that's opus (25-75 $/M) +
- * fable (50 $/M) + the priciest gpt-5.x variants — cleanly separated from
- * sonnet/haiku/gpt-4o (0.6-15 $/M) — without ever naming a model. If pricing
+ * PRICES. At today's rates (see ../../pricing.ts) that's opus (20-75 $/M, so
+ * Opus 5.5 at $20 is included) + fable (50 $/M) + gpt-5.5 (30 $/M) + gpt-6-astra
+ * (50 $/M) + gpt-5.6-sol (20 $/M) — cleanly separated from sonnet/haiku/gpt-4o/
+ * gpt-5.4/gpt-5.6-terra (0.5-15 $/M) — without ever naming a model. If pricing
  * changes, the threshold recomputes automatically on next run.
  *
  * ── Not a reuse of ../../sessions.ts's topSessions() ────────────────────────
@@ -85,9 +86,11 @@ import type { Confidence, Detector, DetectorContext, Finding } from '../types.js
 // this file (not ../config.ts) because it's about *ranking models*, an
 // orthogonal axis to the session-shape constants config.ts already owns.
 // At today's rates: max output rate is claude-opus-4-1's $75/M, so the bar
-// lands at $25/M — inclusive of the whole opus family (all $25-75/M) and
-// claude-fable-5 ($50/M), exclusive of sonnet/gpt-5.4 ($10-15/M) and below.
-const HIGH_COST_TIER_RATIO = 3;
+// lands at $20/M (75 / 3.75) — inclusive of the whole opus family (claude-opus-5-5
+// $20/M, the rest $25-75/M), claude-fable-5 ($50/M), gpt-5.5 ($30/M), gpt-6-astra
+// ($50/M) and gpt-5.6-sol ($20/M), exclusive of sonnet-5-5/gpt-5.4/gpt-5.6-terra
+// ($10-15/M) and below.
+const HIGH_COST_TIER_RATIO = 3.75;
 
 const HIGH_COST_OUTPUT_RATE_THRESHOLD =
   Math.max(...Object.values(PRICES).map((p) => p.output)) / HIGH_COST_TIER_RATIO;

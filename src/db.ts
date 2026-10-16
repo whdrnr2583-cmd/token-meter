@@ -182,6 +182,13 @@ export function migrate(db: Database.Database): void {
   if (!columnExists(db, 'tool_events', 'file_ext')) {
     db.exec(`ALTER TABLE tool_events ADD COLUMN file_ext TEXT`);
   }
+  // 1-hour cache writes (v0.1.29): the part of cache_write_tokens written to the
+  // 1h cache, billed at 2x input instead of 1.25x. cache_write_tokens stays the
+  // 5m+1h total so every existing sum is unchanged. Additive, DEFAULT 0 — stored
+  // rows are not recomputed; they keep their usd_estimate and read as all-5m.
+  if (!columnExists(db, 'token_events', 'cache_write_1h_tokens')) {
+    db.exec(`ALTER TABLE token_events ADD COLUMN cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
@@ -257,8 +264,9 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
     INSERT OR IGNORE INTO token_events
       (ts, source, source_kind, model, project, session_id, request_id,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       total_duration_ms, tps, ttft_ms, usd_estimate, agent_id, ingested_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_duration_ms, tps, ttft_ms, usd_estimate, agent_id, ingested_at,
+       cache_write_1h_tokens)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source, request_id) WHERE request_id IS NOT NULL
     DO UPDATE SET
       ts = excluded.ts,
@@ -275,7 +283,8 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
       ttft_ms = excluded.ttft_ms,
       usd_estimate = excluded.usd_estimate,
       agent_id = COALESCE(excluded.agent_id, token_events.agent_id),
-      ingested_at = excluded.ingested_at
+      ingested_at = excluded.ingested_at,
+      cache_write_1h_tokens = excluded.cache_write_1h_tokens
     WHERE
       excluded.input_tokens + excluded.output_tokens
         + excluded.cache_read_tokens + excluded.cache_write_tokens
@@ -312,6 +321,7 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         r.usd_estimate,
         r.agent_id ?? null,
         ingestedAt,
+        Math.min(r.cache_write_1h_tokens ?? 0, r.cache_write_tokens),
       );
       // changes > 0 = a fresh insert or a larger-total update (both re-stamp
       // ingested_at and, for updates, already set agent_id via COALESCE above).

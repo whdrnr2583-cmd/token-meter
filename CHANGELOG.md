@@ -17,6 +17,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   fallback rates. That made Opus 5.5 input, output and cache writes 25% too
   high and its cache reads 2.5x too high, and Fable 5.1 cache reads 4x too
   high.
+- **`claude-sonnet-5-5` cache-read rate.** It was $0.20/M; the official rate is
+  $0.10/M (0.05x input, same as Opus 5.5). Sonnet 5.5 cache reads were priced
+  2x too high.
+- **High-cost model bar lowered to $20/M output.** The audit's
+  `high_cost_model_signal` detector derived its bar as the highest output rate
+  in the table divided by 3 ($25/M), which excluded Opus 5.5 ($20/M) after its
+  row was added. The divisor is now 3.75, so the bar is $20/M. Opus 5.5 and
+  `gpt-5.6-sol` ($20/M) now qualify; Sonnet 5.5 and `gpt-5.6-terra` do not.
+- **1-hour cache writes are priced at 2x input.** The parser read only
+  `usage.cache_creation_input_tokens` and billed all of it at the 5-minute rate
+  (1.25x input), so 1-hour writes (2x input) were undercharged by 37.5%. It now
+  also reads `usage.cache_creation.ephemeral_1h_input_tokens` and bills that
+  part at 2x input; logs without the `cache_creation` object are billed as
+  before (all 5-minute). `cache_write_tokens` is still the 5m+1h total. The new
+  `token_events.cache_write_1h_tokens` column (additive, `DEFAULT 0`, added on
+  open by `migrate()` if missing) stores the 1h part, and the cache panel's
+  write cost (`cacheStats`) uses it. Rows already stored are not recomputed:
+  they keep their `usd_estimate` and read as all-5-minute. The audit's
+  `cache_inefficiency` cost estimate and the calculator page still price
+  cache writes at the 5-minute rate.
+
+### Added
+- **Rate row `claude-haiku-5-5`** ($0.10 input / $0.50 output / $0.01 cache
+  read / $0.125 5-minute cache write) for prompts of 100k tokens or fewer.
+  Before, it was priced through the Haiku 4.5 fallback ($1/$5), 10x too high.
+- **Long-prompt tier in the rate table.** `ModelPrice` gained an optional
+  `longPrompt` field. `estimateUsd()` now bills a request at the long-prompt
+  rates when its prompt (input + cache read + cache write tokens) is over the
+  threshold, judged per message. `claude-haiku-5-5` uses it: over 100,000
+  prompt tokens it is $0.50 input / $2.50 output / $0.05 cache read / $0.625
+  5-minute cache write. Before, such requests were billed at the 100k-or-fewer
+  rate, 5x too low. Other models are unchanged. The calculator page
+  (`infra/site/calculator.html`) cannot express the tier and still shows the
+  100k-or-fewer rate for Haiku 5.5 (marked in a source comment).
+- **OpenAI rate rows** `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`,
+  `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`, at the Standard-tier
+  short-context (up to 272K input tokens) rates on
+  developers.openai.com/api/docs/pricing (checked 2026-10-16). `gpt-5.6-sol`
+  is listed at promotional pricing through at least 2026-11-21. Before, the
+  `gpt-5.6-*` names fell back to the `gpt-5` rate and the `gpt-6-*` names to
+  the Sonnet 4.6 rate.
+- The public calculator page lists the new rows and the current model names.
 
 ### Notes
 - `checkScheduledRateChanges()` is kept. No change is registered, so it
