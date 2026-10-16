@@ -59,6 +59,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `gpt-5.6-*` names fell back to the `gpt-5` rate and the `gpt-6-*` names to
   the Sonnet 4.6 rate.
 - The public calculator page lists the new rows and the current model names.
+- **Rate-table check against the official pricing pages.** `npm run
+  check:pricing` (`scripts/check-pricing.mjs`) downloads the Anthropic and
+  OpenAI pricing pages, parses the model tables and compares input, output,
+  cache read and cache write (5m and 1h; long-prompt tier for Haiku 5.5) with
+  `PRICES` for every model that has a matching row. It prints the differences
+  as a table and exits 1 if there are any; if a page cannot be fetched or its
+  table format no longer parses it prints "파싱 실패" and exits 2, never a
+  silent pass. `--anthropic <file>` / `--openai <file>` read saved copies
+  offline. It needs the network, so it is not part of `npm test`, and it is
+  not in the published package (`scripts/` is outside `files`). Its parser is
+  covered offline by `test/check-pricing.test.ts`.
 
 ### Notes
 - `checkScheduledRateChanges()` is kept. No change is registered, so it
