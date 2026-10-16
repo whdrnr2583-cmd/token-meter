@@ -71,6 +71,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   not in the published package (`scripts/` is outside `files`). Its parser is
   covered offline by `test/check-pricing.test.ts`.
 
+### Removed
+- Unused one-off scripts (`scripts/inspect-codex.cjs`, `inspect-codex2.cjs`,
+  `inspect-jsonl.cjs`, `test-rule-eval.ts`, `investigate-dedup.cjs`), the broken `dev:web` and
+  `build:web` npm scripts (no Vite setup exists), and the unused `chokidar`
+  dependency. `docs/billing-setup.md` and `docs/pro-plus-features.md` are no
+  longer shipped in the npm package.
+
 ### Notes
 - `checkScheduledRateChanges()` is kept. No change is registered, so it
   returns an empty array. Rows already stored are not recomputed (existing
