@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { estimateUsd } from '../src/pricing.js';
+import { estimateUsd, PRICES as SOURCE_PRICES } from '../src/pricing.js';
 
 // infra/site/calculator.html carries a THIRD hand-copied mirror of the price
 // table (after src/pricing.ts and scripts/quality-audit.cjs), embedded in a
@@ -15,6 +15,10 @@ import { estimateUsd } from '../src/pricing.js';
 // the HTML and cross-checks every rate against src/pricing.ts on a synthetic
 // fixture, and asserts the current-flagship rows are present, so any future
 // stale-rate or missing-row drift fails loudly here.
+//
+// server.json (the MCP registry submission file) is a fourth mirror, of the
+// package version. It is covered at the bottom of this file: its `version` and
+// `packages[].version` must equal package.json's.
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const calcHtml = fs.readFileSync(path.join(here, '../infra/site/calculator.html'), 'utf8');
@@ -37,6 +41,21 @@ function extractCalculatorPricing(): {
 }
 
 const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000;
+
+test('calculator.html rows exist in src/pricing.ts and match it field by field', () => {
+  const { prices } = extractCalculatorPricing();
+  for (const [model, p] of Object.entries(prices)) {
+    // Exact key: estimateUsd() falls back by family, which would hide a
+    // calculator row whose name src/pricing.ts does not know.
+    const src = SOURCE_PRICES[model];
+    assert.ok(src, `calculator.html lists "${model}" but src/pricing.ts has no such row`);
+    assert.deepEqual(
+      { in: p.in, out: p.out, cr: p.cr, cw: p.cw },
+      { in: src.input, out: src.output, cr: src.cacheRead, cw: src.cacheWrite5m },
+      `calculator.html rate drift for "${model}"`,
+    );
+  }
+});
 
 test('calculator.html pricing mirror matches src/pricing.ts for every model it lists', () => {
   const { prices } = extractCalculatorPricing();
@@ -78,5 +97,18 @@ test('calculator.html exposes the current flagship Claude models (regression: 57
       `calculator.html must expose current model "${model}" in PRICES`,
     );
     assert.ok(order.includes(model), `calculator.html ORDER must list "${model}"`);
+  }
+});
+
+test('server.json version equals package.json version (registry submission mirror)', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(here, '../package.json'), 'utf8'));
+  const server = JSON.parse(fs.readFileSync(path.join(here, '../server.json'), 'utf8'));
+  assert.equal(server.version, pkg.version, 'server.json "version" must match package.json');
+  assert.ok(Array.isArray(server.packages) && server.packages.length > 0, 'server.json has packages[]');
+  for (const entry of server.packages) {
+    assert.equal(entry.version, pkg.version, `server.json packages[] "${entry.identifier}" version must match package.json`);
+    if (entry.registryType === 'npm') {
+      assert.equal(entry.identifier, pkg.name, 'server.json npm identifier must be the package name');
+    }
   }
 });

@@ -75,6 +75,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   offline. It needs the network, so it is not part of `npm test`, and it is
   not in the published package (`scripts/` is outside `files`). Its parser is
   covered offline by `test/check-pricing.test.ts`.
+- **Mirror sync tests widened.** `test/calculator-pricing-sync.test.ts` now
+  requires every calculator row to exist in `src/pricing.ts` under the same
+  key and compares input, output, cache read and cache write one by one (the
+  family fallback of `estimateUsd()` could hide an unknown row). It also checks
+  that `server.json` `version` and each `packages[].version` equal the
+  `package.json` version.
 
 ### Removed
 - Unused one-off scripts (`scripts/inspect-codex.cjs`, `inspect-codex2.cjs`,
