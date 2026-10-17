@@ -9,7 +9,7 @@
 ## T-30분 (19:30) — 사전 점검
 
 ```sh
-cd C:\Users\whdrn\Desktop\money\token-pulse
+cd <repo>
 
 # 1. 최종 회귀 4종
 npm run typecheck
@@ -69,7 +69,7 @@ Cloudflare Registrar → tokenmeter.dev 검색 → 등록
 
 ### 2. Git 초기화 + 첫 커밋
 ```sh
-cd C:\Users\whdrn\Desktop\money\token-pulse
+cd <repo>
 git init
 git branch -m main
 git add .
@@ -120,7 +120,7 @@ git push origin v0.1.0
 ### 1. 깨끗한 환경에서 npx 동작 확인
 ```sh
 # 별도 디렉토리에서
-cd C:\Users\whdrn\Desktop
+cd <임시 작업 폴더>
 npx -y @whdrnr2583/token-meter@0.1.0 stats 7
 # → "Last 7 days" 요약 출력
 ```
@@ -216,7 +216,7 @@ D-021 stop-loss 기준 그대로 적용:
 
 ## 박제 후 메모리 업데이트
 
-배포 성공 시 [memory/project_token_meter.md](C:\Users\whdrn\.claude\projects\C--Users-whdrn-Desktop-money\memory\project_token_meter.md) 갱신:
+배포 성공 시 운영자 개인 메모리(이 저장소 밖)의 token-meter 프로젝트 기록 갱신:
 - v0.1.0 출시 날짜
 - npm 패키지명 확정
 - GitHub URL 확정

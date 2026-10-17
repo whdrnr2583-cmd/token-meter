@@ -26,7 +26,7 @@
 
 distribution이 **한 번도 실행되지 않음**:
 - D-031 outbound 차단 (Gmail/HN/조코헌트 외 전 채널 금지)
-- HN: jongguk 계정 shadowban (dang 메일 답 대기, 5/31~)
+- HN: 운영자 계정 shadowban (dang 메일 답 대기, 5/31~)
 - 카톡 promo 4회 소진, 전환 0
 - reddit 채널 dead
 

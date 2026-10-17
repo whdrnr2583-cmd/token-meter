@@ -10,7 +10,7 @@
 먼저 v0.1.1로 패치 (mcpName 필드 추가 반영). Windows PowerShell:
 
 ```powershell
-cd C:\Users\whdrn\Desktop\money\token-pulse
+cd <repo>
 git add package.json CHANGELOG.md
 git commit -m "feat(0.1.1): add mcpName for MCP Registry"
 git push

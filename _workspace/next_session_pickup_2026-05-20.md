@@ -4,7 +4,7 @@
 - **npm v0.1.15 publish + e2e 검증 완료.** GitHub main 푸시 + 태그 `v0.1.15`. 7 커밋.
 - 0.1.15 = Codex/WSL 경로 정확성(`scanWindowsUserDirs` 듀얼환경 — Codex 데이터 처음 잡힘 실증: 43파일·gpt-5 stats 노출) + `usage_summary` 답-형태 재설계 + insights opt-in + CLI 컴팩트 표 + 첫실행 가드(`ensureFirstRunData`) + MCP 버전/startup 하드닝.
 - 패키지명 `@whdrnr2583/token-meter` **유지 결정** (재브랜딩은 트래픽 생긴 후 — 지금은 미관 비용 < 작업·리스크).
-- 실 유료 0건 / GitHub 별 0 / 실사용자 0. 첫 시장신호 = N=3 테스터 미온적([[project_tokenmeter_pro_wtp_signal]]).
+- 실 유료 0건 / GitHub 별 0 / 실사용자 0. 첫 시장신호 = N=3 테스터 미온적.
 
 ## 레드팀 결론 → 전략 (다음 행동을 지배)
 레드팀 5명 중 4명이 거의 그대로 섬. 핵심 진단: **"retention을 모른다."**
@@ -13,7 +13,7 @@
 
 ## 다음 행동 — Step 1 (새 코드 0줄)
 1. 테스터 3명에게 **재확인 메시지**(아래 ①) — retention 질문이 핵심.
-2. **카톡 1회 공유**(아래 ②) — kakao override 단발 박제([[feedback_kakao_promo_override]]) 하에 OK. 테스터 답 먼저 권장. 스크린샷은 0.1.15 재시작 후 캡처.
+2. **카톡 1회 공유**(아래 ②) — kakao override 단발 박제 하에 OK. 테스터 답 먼저 권장. 스크린샷은 0.1.15 재시작 후 캡처.
 3. **사전 판정 기준** (데이터 받기 전 박제 — 사후 합리화 금지):
    - 🟢 Signal A: 테스터 ≥1명이 부탁 없이 재사용 OR 카톡에서 돌아온 사용자/별 1+
    - 🔴 Signal B: "재미있다"만, 아무도 안 돌아옴

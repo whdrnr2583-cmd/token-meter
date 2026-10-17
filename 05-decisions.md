@@ -686,7 +686,7 @@ github.com/<owner>/token-meter-api   ← private (라이선스 API, CF Workers +
 - **랜딩**: CF Pages `tokenmeter-site` → `https://token-meter.dev` (build output: `infra/site`)
 - **CF Pages 자동 배포 X**: `wrangler pages deploy` 수동만. Connect to Git 비활성. PMF 게이트 대비 명시적 control 우선
 - **베타 폼**: Tally 임베드 `https://tally.so/r/2E16vD` (Self email notifications ON, Free tier 충분). CF Workers + D1 wiring 보류 (PMF 게이트 위반)
-- **Email Routing**: `hello@token-meter.dev` → `whdrnr2583@gmail.com` (CF 무료, MX 자동)
+- **Email Routing**: `hello@token-meter.dev` → 운영자 개인 메일함 (CF 무료, MX 자동)
 - **bin 필드 자동 제거 경고**: scoped 패키지에서 unscoped bin key 자동 제거됨. npm이 패키지 이름 scope strip해서 binary 자동 매핑 (`token-meter` 명령 정상 작동)
 - **결제 wiring (Polar/Workers/D1) M3 보류**: PMF 게이트 (알파 5 / 본인 dogfood 1개월 / 카톡 50 / 인터뷰 10) 통과 후만 진입
 
@@ -747,9 +747,9 @@ github.com/<owner>/token-meter-api   ← private (라이선스 API, CF Workers +
 **날짜**: 2026-05-14
 **결정**: 사용자 명시 정책 갱신. Token Meter는 다음 5건 영구 적용.
 
-1. **Outbound 채널 전면 차단** (**Gmail email + Hacker News 예외**): 카톡 알림 / Reddit DM (r/ClaudeAI · r/Codex · r/LocalLLaMA) / ICP 인터뷰 cold DM / Multiplier DM / LinkedIn / Substack / Twitter / Discord / Slack / Smartkarma / 메일 magazine 등 **모든 social·platform 발신 마케팅·리서치 채널 차단**. 자체 발신 0. **단 (a) Gmail email (`hello@token-meter.dev` Reply-to) 회신 + (b) Hacker News (Show HN, 워밍, 댓글)는 허용** — 2026-05-14 사용자 글로벌 outbound rule [[feedback_gmail_only_outbound]] 정합 갱신.
+1. **Outbound 채널 전면 차단** (**Gmail email + Hacker News 예외**): 카톡 알림 / Reddit DM (r/ClaudeAI · r/Codex · r/LocalLLaMA) / ICP 인터뷰 cold DM / Multiplier DM / LinkedIn / Substack / Twitter / Discord / Slack / Smartkarma / 메일 magazine 등 **모든 social·platform 발신 마케팅·리서치 채널 차단**. 자체 발신 0. **단 (a) Gmail email (`hello@token-meter.dev` Reply-to) 회신 + (b) Hacker News (Show HN, 워밍, 댓글)는 허용** — 2026-05-14 사용자 글로벌 outbound rule 정합 갱신.
 
-2. **Gmail-only inbound**: `hello@token-meter.dev` → `whdrnr2583@gmail.com` Email Routing 답신 + Tally `tally.so/r/2E16vD` 자발적 입력만 수용.
+2. **Gmail-only inbound**: `hello@token-meter.dev` → 운영자 개인 메일함 Email Routing 답신 + Tally `tally.so/r/2E16vD` 자발적 입력만 수용.
 
 3. **PMF 게이트 5조건 명시 우회**: [[D-020]] / [[D-029]] 박제의 "알파 5명 / dogfood 1개월 / 카톡 50명 / ICP 인터뷰 10명 / Y1 ARR base $2k" 게이트는 **결제 wiring·Pro/Pro+ 기능 진입 차단 조건으로 폐기**. 본인 dogfood만 측정 의미 유지 (자기 검증 가치).
 
@@ -818,7 +818,7 @@ github.com/<owner>/token-meter-api   ← private (라이선스 API, CF Workers +
 - Polar가 향후 spec에 정합 (base64 key, body id) → 우리 코드 갱신
 - Polar API 응답 헤더에 spec 변경 알림 명시 → 모니터링
 
-**관련 박제**: [[D-001]] Polar.sh / [[D-031]] outbound 차단 / [[feedback_ls_denied_polar_pivot]] (Standard Webhooks 시그너처 박제 — 본 진단으로 갱신).
+**관련 박제**: [[D-001]] Polar.sh / [[D-031]] outbound 차단 / (Standard Webhooks 시그너처 박제 — 본 진단으로 갱신).
 
 ---
 
@@ -949,7 +949,7 @@ github.com/<owner>/token-meter-api   ← private (라이선스 API, CF Workers +
 - GitHub auto-redirect가 향후 중단 (현재 spec상 영구) → 기존 링크 일괄 갱신 sweep
 - username rename 진짜 필요 시점 (해외 user 다수 confusion 보고 30+) → 별개 박제로 진입
 
-**관련 박제**: [[D-022]] 제품명 Token Meter / [[D-029]] npm scope strip 자동 매핑 (이전 박제 본문에 옛 URL 명시 — historical 보존) / [[feedback_listing_vs_discovery]] 등재 ≠ 발견 (본 fix는 discovery layer correction, 등재와 별개)
+**관련 박제**: [[D-022]] 제품명 Token Meter / [[D-029]] npm scope strip 자동 매핑 (이전 박제 본문에 옛 URL 명시 — historical 보존) / 등재 ≠ 발견 (본 fix는 discovery layer correction, 등재와 별개)
 
 ---
 
@@ -1134,7 +1134,7 @@ dogfood(본인 1명)만 신호원. 기능을 더 쌓는 건 [[D-038]] 4haiku 검
 - 미래 가정("$5 낼래요?")이 아니라 현재 행동·과거 통증 사건을 질문 → WTP를 *추론*.
 - 진짜 WTP 신호 = 이미 돈·시간을 들여 해결책을 만든 사람.
 - 인터뷰 중 Token Meter·가격·URL·"써보세요" unprompted 발화 금지
-  ([[feedback_research_interview_vs_sales_pitch]] 정합). 상대가 먼저 물으면 그때만 한 줄.
+  (연구·영업 분리 원칙 정합). 상대가 먼저 물으면 그때만 한 줄.
 - 가이드·결과 로그: `_workspace/wtp_validation_kakao.md`.
 
 **판정 기준**: ~5명 ICP 인터뷰 중 강(强) 신호 3+ → Pro 가설 존속·M3 결제 트랙 검토 /
@@ -1145,8 +1145,8 @@ dogfood(본인 1명)만 신호원. 기능을 더 쌓는 건 [[D-038]] 4haiku 검
 - 카톡 외 채널로 넓히려면 별도 결정 필요 (본 박제는 카톡 1채널 한정).
 
 **관련 박제**: [[D-031]] 우회 대상 (비-매매 메타룰, 사용자 명시 우회 —
-[[feedback_rule_integrity]] §우회 정합) / [[D-038]] Pro 기능 현황 /
-[[feedback_research_interview_vs_sales_pitch]] 연구·영업 분리.
+메타룰 우회 원칙 정합) / [[D-038]] Pro 기능 현황 /
+연구·영업 분리.
 
 **개정 2026-05-19**: 방식을 'Mom Test 검증 인터뷰' → **'maker-share(내가 만든 도구 공유)
 + 답글에서 대화·반응 수집'**으로 고도화 (사용자 명시). 제품이 이미 빌드·배포된 상태

@@ -71,7 +71,7 @@ export function claudeProjectsDirs(): string[] {
 
 // Decode Claude Code's project-directory name back to a path. Lossy fallback
 // only — the parser prefers the JSONL `cwd` field. Windows dirs look like
-// "C--Users-whdrn-Desktop"; POSIX dirs like "-mnt-c-Users-whdrn-claudeCode".
+// "C--Users-<user>-Desktop"; POSIX dirs like "-mnt-c-Users-<user>-project".
 function prettyProjectName(dirName: string): string {
   if (/^[A-Za-z]--/.test(dirName)) {
     return dirName

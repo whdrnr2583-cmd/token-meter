@@ -73,12 +73,12 @@
 
 | 디렉토리 | USD | 비중 |
 |---|---|---|
-| `Desktop\money` (koreanpulse + trading + token-meter) | $1,326 | **77.5%** |
+| `<workspace>` (다른 개인 프로젝트 + token-meter) | $1,326 | **77.5%** |
 | `Desktop` (잡다) | $200 | 11.7% |
 | sharp/montalcini worktree | $106 | 6.2% |
 | 나머지 | $80 | 4.6% |
 
-→ 본인 시간 거의 전부가 `Desktop\money` (사이드 프로젝트군). 본업 v18 / koreanpulse / token-meter 분간 안 됨 = breakdown 더 세밀 필요. **프로젝트 path가 의미 없는 폴더 이름이라 BI 어려움** → 사용자 인터뷰에 "프로젝트 이름이 path 기반인데 의미 있게 그룹핑 되어 있나요?" 질문 가능.
+→ 본인 시간 거의 전부가 `<workspace>` (사이드 프로젝트군). 본업 v18 / koreanpulse / token-meter 분간 안 됨 = breakdown 더 세밀 필요. **프로젝트 path가 의미 없는 폴더 이름이라 BI 어려움** → 사용자 인터뷰에 "프로젝트 이름이 path 기반인데 의미 있게 그룹핑 되어 있나요?" 질문 가능.
 
 ---
 

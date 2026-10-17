@@ -20,12 +20,12 @@ v0.1.12+v0.1.13 fix 기준. 코드 수정 0건 — 발견·평가·권고만.
 ### `/` vs `\` 버그 근본원인 및 현재 상태
 
 **보고된 버그**: `usage_summary`에서 동일 프로젝트가
-`/mnt/c/Users/whdrn/claudeCode`와 `\mnt\c\Users\whdrn\claudeCode` 두 줄로 분리 집계.
+`/mnt/c/Users/<u>/<project>`와 `\mnt\c\Users\<u>\<project>` 두 줄로 분리 집계.
 
 **근본원인**: `src/ingest.ts` `prettyProjectName()` 함수가 v0.1.12 이전에 POSIX·Windows 구분 없이 모든 `-`를 `\`로 교체했음.
 - 코드: `return dirName.replace(/-/g, '\\')` (구 버전)
-- POSIX 디렉터리명 `-mnt-c-Users-whdrn-claudeCode` → `\mnt\c\Users\whdrn\claudeCode` (잘못된 백슬래시)
-- 반면 JSONL `cwd` 필드는 실제 경로인 `/mnt/c/Users/whdrn/claudeCode` (슬래시)를 담고 있어, 두 값이 DB에 별도 `project` 값으로 저장됨 → 프로젝트 split 발생.
+- POSIX 디렉터리명 `-mnt-c-Users-<u>-<project>` → `\mnt\c\Users\<u>\<project>` (잘못된 백슬래시)
+- 반면 JSONL `cwd` 필드는 실제 경로인 `/mnt/c/Users/<u>/<project>` (슬래시)를 담고 있어, 두 값이 DB에 별도 `project` 값으로 저장됨 → 프로젝트 split 발생.
 
 **v0.1.12 수정 후 상태 (파일·라인 기준)**:
 
@@ -44,7 +44,7 @@ v0.1.12+v0.1.13 fix 기준. 코드 수정 0건 — 발견·평가·권고만.
 **현황**: `claudeProjectsDir()` (`src/ingest.ts:27-29`)는 `homedir()` 한 곳만 스캔.
 - WSL에서 token-meter 실행 시: `/home/<u>/.claude/projects/` 만 봄.
 - Windows에서 Claude Code를 사용해도 해당 로그(`C:\Users\<u>\.claude\`) 는 탐지 불가.
-- 실측: WSL `~/.claude/projects` 6개 디렉터리, Windows `/mnt/c/Users/whdrn/.claude/projects` 9개 디렉터리 — 별개로 존재.
+- 실측: WSL `~/.claude/projects` 6개 디렉터리, Windows `/mnt/c/Users/<u>/.claude/projects` 9개 디렉터리 — 별개로 존재.
 
 **권고**:
 - **Quick win (설계 필요 없음)**: WSL 환경에서 `$WSLENV` 또는 `/proc/version` 감지 후 `/mnt/c/Users/<u>/.claude/projects/` 를 추가 스캔 후보로 병합. Windows 사용자가 WSL로 token-meter를 실행할 때 누락 방지.
@@ -55,7 +55,7 @@ v0.1.12+v0.1.13 fix 기준. 코드 수정 0건 — 발견·평가·권고만.
 
 ## 조사 B — 홈페이지(랜딩) 수정 필요 항목
 
-**대상 파일**: `/mnt/c/Users/whdrn/Desktop/money/token-pulse/infra/site/index.html`
+**대상 파일**: `<repo>/infra/site/index.html`
 
 수정 항목 5건 — correctness/fix only.
 
