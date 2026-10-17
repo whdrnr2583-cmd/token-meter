@@ -122,3 +122,55 @@ test('quality-audit.cjs extracts PRICES from src/pricing.ts rather than hand-cop
     'quality-audit.cjs should read PRICES out of src/pricing.ts, not hand-copy it',
   );
 });
+
+function extractAuditExpectUsd(): (row: {
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheWrite1h?: number;
+}) => number {
+  const resolveMatch = auditSrc.match(/function resolve\(m\) \{[\s\S]*?\n\}/);
+  const expectMatch = auditSrc.match(/function expectUsd\(\{[\s\S]*?\n\}/);
+  assert.ok(resolveMatch, 'expected `function resolve(m) {...}` block in quality-audit.cjs');
+  assert.ok(expectMatch, 'expected `function expectUsd({...}) {...}` block in quality-audit.cjs');
+  const factory = new Function('PRICES', `
+    ${resolveMatch![0]}
+    ${expectMatch![0]}
+    return expectUsd;
+  `);
+  return factory(PRICES);
+}
+
+test('quality-audit.cjs expectUsd() prices 1-hour cache writes like estimateUsd()', () => {
+  const expectUsd = extractAuditExpectUsd();
+  const cases = [
+    // all-1h: 2x input, not the 1.25x 5m rate
+    { model: 'claude-opus-5-5', input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000, cacheWrite1h: 1_000_000 },
+    // mixed 5m + 1h on a row with an unusual cacheRead ratio
+    { model: 'claude-sonnet-5-5', input: 1000, output: 2000, cacheRead: 50000, cacheWrite: 30000, cacheWrite1h: 12000 },
+    // OpenAI rows have no cache-write fee, so 1h writes cost 0 too
+    { model: 'gpt-5', input: 1000, output: 2000, cacheRead: 5000, cacheWrite: 3000, cacheWrite1h: 3000 },
+  ];
+  for (const c of cases) {
+    assert.equal(expectUsd(c), estimateUsd(c), `1h cache-write drift for "${c.model}"`);
+  }
+});
+
+test('quality-audit.cjs expectUsd() applies the Haiku 5.5 long-prompt tier like estimateUsd()', () => {
+  const expectUsd = extractAuditExpectUsd();
+  const cases = [
+    // prompt 150k (> 100k): whole request billed at the longPrompt rates
+    { model: 'claude-haiku-5-5', input: 150_000, output: 1000, cacheRead: 0, cacheWrite: 0 },
+    // prompt counts input + cacheRead + cacheWrite
+    { model: 'claude-haiku-5-5', input: 10_000, output: 1000, cacheRead: 80_000, cacheWrite: 20_000, cacheWrite1h: 5_000 },
+    // exactly 100k is still the short tier
+    { model: 'claude-haiku-5-5', input: 100_000, output: 1000, cacheRead: 0, cacheWrite: 0 },
+    // dated id resolves to the same row
+    { model: 'claude-haiku-5-5-20261001', input: 150_000, output: 1000, cacheRead: 0, cacheWrite: 0 },
+  ];
+  for (const c of cases) {
+    assert.equal(expectUsd(c), estimateUsd(c), `long-prompt drift for "${c.model}" (${JSON.stringify(c)})`);
+  }
+});

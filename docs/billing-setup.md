@@ -201,16 +201,15 @@ D-029.)
 
 ---
 
-## 8. Default-on gating — done (v0.1.28, pending publish)
+## 8. Default-on gating — done (v0.1.28, published)
 
 `isGatingEnabled()` in `src/license.ts` now defaults to on: no license →
 Free. `TOKEN_METER_GATING=0` (or `false`) is the dev/dogfood escape hatch
 that forces Pro+. Per D-038.
 
 Breaking for anyone running v0.1.x without a license, but shipped as
-`0.1.28` rather than the `0.2.0` this doc originally called for. Not yet
-on npm — publish is a manual OTP step and npm is still on 0.1.25, so
-0.1.26/0.1.27/0.1.28 all land in the same push.
+`0.1.28` rather than the `0.2.0` this doc originally called for. Published
+to npm on 2026-07-16 (see CHANGELOG `[0.1.28]`).
 
 ---
 

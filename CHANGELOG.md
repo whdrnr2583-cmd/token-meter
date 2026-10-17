@@ -20,6 +20,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **`claude-sonnet-5-5` cache-read rate.** It was $0.20/M; the official rate is
   $0.10/M (0.05x input, same as Opus 5.5). Sonnet 5.5 cache reads were priced
   2x too high.
+- **Audit script cost recomputation.** `scripts/quality-audit.cjs`
+  `expectUsd()` now mirrors the 1-hour cache-write rate and the Haiku 5.5
+  long-prompt tier, so `npm run audit` no longer reports a pricing "real bug"
+  on stamped rows with 1h writes or prompts over 100k tokens.
+  `test/audit-pricing-sync.test.ts` runs it against `estimateUsd()`.
 - **High-cost model bar lowered to $20/M output.** The audit's
   `high_cost_model_signal` detector derived its bar as the highest output rate
   in the table divided by 3 ($25/M), which excluded Opus 5.5 ($20/M) after its

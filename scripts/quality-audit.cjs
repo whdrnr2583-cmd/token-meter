@@ -112,9 +112,19 @@ function resolve(m) {
   if (n.includes('gpt-4o')) return PRICES['gpt-4o'];
   return PRICES['claude-sonnet-4-6'];
 }
-function expectUsd({ model, input, output, cacheRead, cacheWrite }) {
-  const p = resolve(model);
-  const c = (input * p.input + output * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite5m) / 1_000_000;
+// Mirror of src/pricing.ts estimateUsd(): a request whose prompt (input + cache
+// read + cache write) exceeds a row's longPrompt.above is billed entirely at the
+// longPrompt rates, and 1h cache writes cost cacheWrite1h (default 2x input for
+// rows that charge for cache writes, else 0). test/audit-pricing-sync.test.ts
+// runs this function against estimateUsd().
+function expectUsd({ model, input, output, cacheRead, cacheWrite, cacheWrite1h = 0 }) {
+  const base = resolve(model);
+  const prompt = input + cacheRead + cacheWrite;
+  const p = base.longPrompt && prompt > base.longPrompt.above ? base.longPrompt : base;
+  const write1h = Math.min(Math.max(cacheWrite1h, 0), cacheWrite);
+  const write5m = cacheWrite - write1h;
+  const rate1h = p.cacheWrite1h !== undefined ? p.cacheWrite1h : (p.cacheWrite5m > 0 ? p.input * 2 : 0);
+  const c = (input * p.input + output * p.output + cacheRead * p.cacheRead + write5m * p.cacheWrite5m + write1h * rate1h) / 1_000_000;
   return Math.round(c * 1_000_000) / 1_000_000;
 }
 
@@ -156,7 +166,7 @@ let mismStamped = 0;
 let mismStampedPreChange = 0;
 let stampedCount = 0;
 for (const r of sample) {
-  const exp = expectUsd({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_write_tokens });
+  const exp = expectUsd({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_write_tokens, cacheWrite1h: r.cache_write_1h_tokens ?? 0 });
   const ok = approxEqual(exp, r.usd_estimate, 0.0001);
   if (r.ingested_at != null) {
     stampedCount++;
