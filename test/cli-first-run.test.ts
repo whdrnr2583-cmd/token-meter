@@ -80,3 +80,26 @@ test('an unusable database path gives a one-line actionable error, not a stack t
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('audit rejects a mistyped option instead of silently running with defaults; valid flags still work', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tm-cli-'));
+  try {
+    seedClaudeLog(home);
+    const bad = run(home, ['audit', '--jsno']);
+    assert.equal(bad.code, 1);
+    assert.match(bad.err, /Unknown option: --jsno/);
+    const ok = run(home, ['audit', '--days', '3', '--source', 'claude', '--limit', '2', '--json']);
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(JSON.parse(ok.out).period.days, 3);
+    // --project's value may start with anything, including text that looks like a flag name
+    const proj = run(home, ['audit', '--project', '/tmp/demo', '--json']);
+    assert.equal(proj.code, 0, proj.err);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('--help documents the environment variables', () => {
+  const r = run(mkdtempSync(join(tmpdir(), 'tm-cli-')), ['--help']);
+  assert.match(r.out, /TOKENPULSE_DB/);
+});

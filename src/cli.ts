@@ -28,6 +28,11 @@ const USAGE = `Usage:
   token-meter activate <key>                Activate a Pro / Pro+ license
   token-meter setup <key>                   activate + add gating export to ~/.zshrc / ~/.bashrc
 
+Environment:
+  TOKENPULSE_DB                             Database path (default ~/.tokenpulse/usage.db)
+  PORT                                      Dashboard port for "serve" (default 8765)
+  TOKEN_METER_DEBUG=1                       Print stack traces on errors
+
 Flags:
   -v, --version                             Print version
   -h, --help                                Print this message
@@ -422,6 +427,20 @@ async function main(): Promise<void> {
       const i = rest.indexOf(name);
       return i !== -1 ? rest[i + 1] : undefined;
     };
+    // A mistyped flag (e.g. --day, --jsno) used to be ignored silently and the
+    // audit ran with defaults; fail loudly instead.
+    const knownAuditFlags = new Set(['--days', '--source', '--project', '--limit', '--json']);
+    const valueFlags = new Set(['--days', '--source', '--project', '--limit']);
+    for (let i = 0; i < rest.length; i++) {
+      const a = rest[i]!;
+      if (a.startsWith('--')) {
+        if (!knownAuditFlags.has(a)) {
+          console.error(`Unknown option: ${a}\n${AUDIT_USAGE}`);
+          process.exit(1);
+        }
+        if (valueFlags.has(a)) i++;
+      }
+    }
     const jsonMode = rest.includes('--json');
 
     const daysRaw = flagVal('--days');

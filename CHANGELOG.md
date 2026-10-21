@@ -72,6 +72,8 @@ release step is part of it.
   edited rules with `notify.email` get HTTP 400 (`field: action_type`); rules
   saved earlier keep loading, show as "Email (inactive)", and can be toggled or
   deleted. Docs updated.
+- `audit` rejects unknown options (a typo like `--jsno` used to run silently with
+  defaults); `--help` lists `TOKENPULSE_DB`, `PORT`, `TOKEN_METER_DEBUG`.
 - `npm run check:pricing -- --only anthropic|openai` verifies one vendor when
   the other page is unreachable and says which vendor was not verified.
 
