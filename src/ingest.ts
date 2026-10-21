@@ -307,3 +307,40 @@ export function ensureFirstRunData(
       ].join('\n');
   return { wasEmpty: true, ingested, rowsAfter: 0, guidance };
 }
+
+export interface RefreshResult {
+  summary: CombinedIngestSummary | null;
+  /** Plain-text next step when there is still no usage data; '' otherwise. */
+  guidance: string;
+  /** Human-readable ingest problems (unreadable files, ingest crash). */
+  warnings: string[];
+}
+
+/**
+ * Bring the local DB up to date before a read-only report command (stats,
+ * audit, subagents, local). The scan is incremental (unchanged files are
+ * skipped by mtime+size), so it is cheap when nothing changed, and it means a
+ * brand-new user running `npx ... audit` as their very first command sees real
+ * data instead of an empty "run ingest first" report. Never throws.
+ */
+export function refreshForReport(
+  db: Database.Database,
+  options: { ingest?: (db: Database.Database) => CombinedIngestSummary } = {},
+): RefreshResult {
+  const warnings: string[] = [];
+  let summary: CombinedIngestSummary | null = null;
+  try {
+    summary = (options.ingest ?? ((d) => ingestAll(d)))(db);
+    for (const part of [summary.claude_code, summary.codex]) {
+      if (part.files_failed > 0) {
+        warnings.push(
+          `Skipped ${part.files_failed} unreadable log file(s); first error: ${part.errors[0] ?? 'unknown'}`,
+        );
+      }
+    }
+  } catch (err) {
+    warnings.push(`Could not scan logs: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const guidance = countTokenEvents(db) > 0 ? '' : ensureFirstRunData(db, { ingest: () => undefined }).guidance;
+  return { summary, guidance, warnings };
+}

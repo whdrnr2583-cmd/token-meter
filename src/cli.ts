@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { migrate, openDb } from './db.js';
-import { ingestAll } from './ingest.js';
+import { ingestAll, refreshForReport } from './ingest.js';
 import { byMcp, byModel, byProject, daily, localPerf, overview, subagentCosts } from './stats.js';
 import { clampDaysToEntitlement, getEntitlement, isProTier } from './license.js';
 import type { AuditReport } from './audit/types.js';
@@ -177,6 +177,14 @@ function printLocalPerf(db: ReturnType<typeof openDb>, days: number): void {
   }
 }
 
+// Used by every read-only report command. Notes go to stderr so `--json` and
+// piped stdout stay machine-readable.
+function refreshQuietly(db: ReturnType<typeof openDb>): void {
+  const r = refreshForReport(db);
+  for (const w of r.warnings) console.error(`Warning: ${w}`);
+  if (r.guidance) console.error(`\n${r.guidance}\n`);
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
 
@@ -332,6 +340,11 @@ async function main(): Promise<void> {
       `Codex:       scanned ${result.codex.files_scanned}, processed ${result.codex.files_processed}, ` +
         `+${result.codex.token_rows_inserted} tokens in ${result.codex.duration_ms}ms`,
     );
+    const failed = result.claude_code.files_failed + result.codex.files_failed;
+    if (failed > 0) {
+      console.error(`Warning: skipped ${failed} unreadable log file(s); they will be retried next run.`);
+      for (const e of [...result.claude_code.errors, ...result.codex.errors].slice(0, 5)) console.error(`  ${e}`);
+    }
     return;
   }
 
@@ -349,6 +362,7 @@ async function main(): Promise<void> {
     const outIdx = rest.indexOf('--out');
     const outPath = outIdx !== -1 ? rest[outIdx + 1] : undefined;
 
+    refreshQuietly(db);
     const ent = getEntitlement();
     if (!isProTier(ent.tier)) {
       console.error(
@@ -362,7 +376,12 @@ async function main(): Promise<void> {
     const content = fmt === 'csv' ? exportCsv(db, days) : exportJson(db, days);
 
     if (outPath) {
-      writeFileSync(outPath, content, 'utf8');
+      try {
+        writeFileSync(outPath, content, 'utf8');
+      } catch (err) {
+        console.error(`Could not write ${outPath}: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
       console.log(`Exported ${days}-day ${fmt.toUpperCase()} to ${outPath}`);
     } else {
       process.stdout.write(content + '\n');
@@ -371,6 +390,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === 'subagents') {
+    refreshQuietly(db);
     const daysArg = rest.find((s) => /^\d+$/.test(s));
     const requested = daysArg ? Number.parseInt(daysArg, 10) : 30;
     const ent = getEntitlement();
@@ -454,6 +474,7 @@ async function main(): Promise<void> {
       limit = jsonMode ? 20 : 5;
     }
 
+    refreshQuietly(db);
     const { runAudit } = await import('./audit/engine.js');
     let report: AuditReport;
     try {
@@ -477,6 +498,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === 'stats' || cmd === undefined) {
+    refreshQuietly(db);
     const daysArg = rest.find((s) => /^\d+$/.test(s));
     const requested = daysArg ? Number.parseInt(daysArg, 10) : 30;
     const ent = getEntitlement();
@@ -500,11 +522,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  console.error(`Unknown command: ${cmd}\n`);
   console.error(USAGE);
   process.exit(1);
 }
 
 main().catch((err) => {
-  console.error(err);
+  // A stack trace is noise for a user who just hit a bad path or a locked DB;
+  // keep it behind TOKEN_METER_DEBUG=1.
+  const e = err as NodeJS.ErrnoException;
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(`token-meter: ${msg}`);
+  if (e?.code === 'EACCES' || e?.code === 'EPERM') {
+    console.error('Permission denied. Check that you own the file/directory (the database lives in ~/.tokenpulse/, override with TOKENPULSE_DB).');
+  } else if (e?.code === 'SQLITE_CANTOPEN' || /unable to open database|directory does not exist/i.test(msg)) {
+    console.error('Could not open the database. Check the path in TOKENPULSE_DB (default ~/.tokenpulse/usage.db) and that its folder is writable.');
+  } else if (e?.code === 'SQLITE_BUSY' || e?.code === 'SQLITE_LOCKED') {
+    console.error('The database is busy (another token-meter process is writing). Retry in a moment.');
+  }
+  if (process.env.TOKEN_METER_DEBUG) console.error(err);
   process.exit(1);
 });
