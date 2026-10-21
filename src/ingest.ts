@@ -22,6 +22,10 @@ export { isWsl, scanWindowsUserDirs };
 export interface IngestSummary {
   files_scanned: number;
   files_processed: number;
+  /** Files that could not be read/parsed (skipped; retried on the next run). */
+  files_failed: number;
+  /** First few "<path>: <reason>" messages for failed files. */
+  errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
   duration_ms: number;
@@ -30,6 +34,8 @@ export interface IngestSummary {
 export interface CodexIngestSummary {
   files_scanned: number;
   files_processed: number;
+  files_failed: number;
+  errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
   duration_ms: number;
@@ -133,15 +139,20 @@ function ingestAgentMeta(db: Database.Database, filePath: string, agentId: strin
   }
 }
 
+export const MAX_REPORTED_INGEST_ERRORS = 5;
+
 export function ingestClaudeCode(
   db: Database.Database,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; parse?: typeof parseJsonlFile } = {},
 ): IngestSummary {
+  const parse = options.parse ?? parseJsonlFile;
   const start = Date.now();
   const baseDirs = claudeProjectsDirs();
   const summary: IngestSummary = {
     files_scanned: 0,
     files_processed: 0,
+    files_failed: 0,
+    errors: [],
     token_rows_inserted: 0,
     tool_rows_inserted: 0,
     duration_ms: 0,
@@ -203,14 +214,24 @@ export function ingestClaudeCode(
           prior.mtime_ms === Math.floor(st.mtimeMs) &&
           prior.size === st.size;
         if (unchanged) continue;
-        const { tokens, tools } = parseJsonlFile(filePath, prettyName, agentId);
-        const ti = insertTokenEvents(db, tokens);
-        const tl = insertToolEvents(db, tools);
-        if (agentId) ingestAgentMeta(db, filePath, agentId);
-        recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
-        summary.files_processed++;
-        summary.token_rows_inserted += ti;
-        summary.tool_rows_inserted += tl;
+        // One unreadable/oversized/locked file must not abort the whole scan
+        // (or the dashboard's boot ingest). Skip it, report it, and leave its
+        // ingest_state unrecorded so the next run retries it.
+        try {
+          const { tokens, tools } = parse(filePath, prettyName, agentId);
+          const ti = insertTokenEvents(db, tokens);
+          const tl = insertToolEvents(db, tools);
+          if (agentId) ingestAgentMeta(db, filePath, agentId);
+          recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
+          summary.files_processed++;
+          summary.token_rows_inserted += ti;
+          summary.tool_rows_inserted += tl;
+        } catch (err) {
+          summary.files_failed++;
+          if (summary.errors.length < MAX_REPORTED_INGEST_ERRORS) {
+            summary.errors.push(`${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
   }

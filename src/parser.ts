@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { ContentBlock, JsonlEntry, TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
+import { readLines } from './jsonl-lines.js';
 
 const MCP_PREFIX_RE = /^mcp__([^_]+(?:_[^_]+)*?)__/;
 
@@ -62,8 +62,6 @@ export function parseJsonlFile(
   projectName: string,
   agentId: string | null = null,
 ): ParseResult {
-  const content = readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
   const sessionId = basename(filePath).replace(/\.jsonl$/, '');
 
   const tokens: TokenEvent[] = [];
@@ -88,7 +86,7 @@ export function parseJsonlFile(
   // For latency: tool_use timestamp keyed by id.
   const toolUseTimestamps = new Map<string, { ts: number; name: string; fileExt: string | null }>();
 
-  for (const line of lines) {
+  for (const line of readLines(filePath)) {
     if (!line) continue;
     let entry: JsonlEntry;
     try {

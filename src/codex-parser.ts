@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
 import type { TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
 import { estimateTokensFromText } from './parser.js';
+import { readLines } from './jsonl-lines.js';
 
 interface CodexLastTokenUsage {
   input_tokens?: number;
@@ -55,9 +55,6 @@ export interface ParseCodexResult {
 }
 
 export function parseCodexSession(filePath: string): ParseCodexResult {
-  const content = readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-
   let sessionId = '';
   let cwd = 'unknown';
   let model = 'gpt-5';
@@ -65,7 +62,9 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
   const tools: ToolEvent[] = [];
 
   // First pass: read session_meta (always early in file).
-  for (const line of lines.slice(0, 5)) {
+  let headLines = 0;
+  for (const line of readLines(filePath)) {
+    if (++headLines > 5) break;
     if (!line) continue;
     let entry: CodexEntry;
     try {
@@ -99,7 +98,10 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
   // simply never flushed to `tools` — no partial/guessed event.
   const pendingToolCalls = new Map<string, { ts: number; name: string }>();
 
-  for (const line of lines) {
+  // Cumulative totals of the previous token_count event, to skip repeats.
+  let prevTotalKey = '';
+
+  for (const line of readLines(filePath)) {
     if (!line) continue;
     let entry: CodexEntry;
     try {
@@ -158,14 +160,32 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     const info = entry.payload.info;
     if (!info || !info.last_token_usage) continue;
     const u = info.last_token_usage;
+    // Codex can re-emit a token_count event whose cumulative total did not move
+    // (no new API call happened). Its last_token_usage is then a stale copy of
+    // the previous turn, and billing it again double-counts that turn. Only
+    // skip when the cumulative total is present, non-trivial and identical.
+    const tt = info.total_token_usage;
+    if (tt && (tt.total_tokens ?? tt.input_tokens ?? 0) > 0) {
+      const key = `${tt.input_tokens ?? 0}|${tt.cached_input_tokens ?? 0}|${tt.output_tokens ?? 0}|${tt.reasoning_output_tokens ?? 0}|${tt.total_tokens ?? 0}`;
+      if (key === prevTotalKey) continue;
+      prevTotalKey = key;
+    }
     const input = u.input_tokens ?? 0;
     const cacheRead = u.cached_input_tokens ?? 0;
     const output = u.output_tokens ?? 0;
     const reasoning = u.reasoning_output_tokens ?? 0;
     // Codex reports input_tokens including cached. Subtract to get fresh input.
     const freshInput = Math.max(0, input - cacheRead);
-    // Reasoning tokens billed as output by OpenAI.
-    const totalOutput = output + reasoning;
+    // Reasoning tokens are billed as output by OpenAI. In the OpenAI usage
+    // object reasoning tokens are a SUBSET of output_tokens, so adding them
+    // again double-counts. The log carries its own evidence: `total_tokens`.
+    // When it equals input + output (without reasoning) reasoning is already
+    // inside output; when it equals input + output + reasoning, it is not.
+    // With no total_tokens to decide, keep the historical additive behaviour.
+    const reportedTotal = u.total_tokens;
+    const reasoningIncluded =
+      reasoning > 0 && reportedTotal !== undefined && reportedTotal === input + output;
+    const totalOutput = reasoningIncluded ? output : output + reasoning;
     if (freshInput + totalOutput + cacheRead === 0) continue;
 
     const ts = entry.timestamp ? Date.parse(entry.timestamp) : Date.now();

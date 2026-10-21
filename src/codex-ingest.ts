@@ -9,6 +9,8 @@ import { scanWindowsUserDirs } from './platform.js';
 export interface CodexIngestSummary {
   files_scanned: number;
   files_processed: number;
+  files_failed: number;
+  errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
   duration_ms: number;
@@ -51,12 +53,15 @@ function walkJsonl(dir: string, out: string[]): void {
 
 export function ingestCodex(
   db: Database.Database,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; parse?: typeof parseCodexSession } = {},
 ): CodexIngestSummary {
+  const parse = options.parse ?? parseCodexSession;
   const start = Date.now();
   const summary: CodexIngestSummary = {
     files_scanned: 0,
     files_processed: 0,
+    files_failed: 0,
+    errors: [],
     token_rows_inserted: 0,
     tool_rows_inserted: 0,
     duration_ms: 0,
@@ -84,14 +89,20 @@ export function ingestCodex(
         prior.size === st.size;
       if (unchanged) continue;
 
-      const { tokens, tools } = parseCodexSession(filePath);
-      const ti = insertTokenEvents(db, tokens);
-      const tl = insertToolEvents(db, tools);
-      recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
-
-      summary.files_processed++;
-      summary.token_rows_inserted += ti;
-      summary.tool_rows_inserted += tl;
+      try {
+        const { tokens, tools } = parse(filePath);
+        const ti = insertTokenEvents(db, tokens);
+        const tl = insertToolEvents(db, tools);
+        recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
+        summary.files_processed++;
+        summary.token_rows_inserted += ti;
+        summary.tool_rows_inserted += tl;
+      } catch (err) {
+        summary.files_failed++;
+        if (summary.errors.length < 5) {
+          summary.errors.push(`${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
   }
 
