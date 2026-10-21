@@ -4,7 +4,8 @@
 
 # Token Meter
 
-> Track Claude Code, Codex & Cursor token usage and cost locally — no account, no cloud.
+> Track Claude Code & Codex token usage and cost locally — no account, no cloud.
+> (Cursor is supported only as an MCP *client* you can connect Token Meter to; its own usage is not ingested.)
 >
 > One local dashboard for your **Claude Code** and **Codex** token usage.
 > Free, MCP-aware, MIT-licensed core.
@@ -178,11 +179,28 @@ Pro+ ships once Pro sign-ups + community demand confirm the segment.
 ## Privacy & security
 
 - Tokens are counted from the JSONL files Claude Code and Codex already write.
-  Token Meter does not touch network APIs of either vendor.
+  Token Meter does not call the Anthropic or OpenAI APIs.
 - No prompt or response bodies are stored by default — only metadata
-  (timestamps, token counts, tool names, response lengths).
-- The database lives under `~/.tokenpulse/`; delete it to wipe. (Renamed to
-  `~/.tokenmeter/` in a future release with an automatic migration.)
+  (timestamps, token counts, tool names, response lengths, file extensions).
+- The database lives under `~/.tokenpulse/` (override with `TOKENPULSE_DB`);
+  delete it to wipe. (Renamed to `~/.tokenmeter/` in a future release with an
+  automatic migration.)
+- The dashboard listens on `127.0.0.1` only and rejects requests whose `Host`
+  is not a loopback name or whose `Origin` is another site, so a web page you
+  visit cannot read your usage through DNS rebinding or post rules to it.
+
+**Every network call the code can make** (nothing else touches the network, and
+there is no telemetry or analytics):
+
+| Call | When | What is sent |
+|---|---|---|
+| `token-meter activate` / `setup` | Only when you run it | Your license key, to `api.token-meter.dev` (override: `TOKEN_METER_API_BASE`) |
+| `notify.webhook` rule action | Only if you create such a rule | The rule's firing payload (metric, value, threshold) to the URL **you** set |
+| `token-meter proxy` | Only if you run it | Forwards your requests to the local LLM backend **you** point it at |
+
+`token-meter audit`, `stats`, `serve`, `mcp`, `ingest` and `export` make no
+network requests. This is enforced by `test/no-network-surface.test.ts`, which
+fails if a new network primitive appears outside the files listed above.
 
 ## Changelog
 
