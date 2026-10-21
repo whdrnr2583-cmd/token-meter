@@ -7,8 +7,9 @@ oversized tool responses, slow tools, repeated calls, cache waste, and a
 high-cost-model usage signal.
 
 It reads from the same local SQLite database every other Token Meter command
-uses (`~/.tokenpulse/usage.db`). Nothing is uploaded; run `token-meter
-ingest` first if you haven't already.
+uses (`~/.tokenpulse/usage.db`, override with `TOKENPULSE_DB`). Nothing is
+uploaded. `audit` scans for new log files itself before analysing, so it works as
+a first command; running `token-meter ingest` separately is optional.
 
 ```sh
 npx -y @whdrnr2583/token-meter audit

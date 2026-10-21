@@ -5,6 +5,76 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Maintainer note: this batch was built on 2026-10-21 at the maintainer's explicit
+request; it supersedes, for this work only, the 2026-06-28 "bugs and security
+only" status in STRATEGY.md. No pricing, license enforcement, publish or
+release step is part of it.
+
+### Security
+- **Dashboard rejects DNS-rebinding and cross-site requests.** The server bound
+  to 127.0.0.1 but accepted any `Host` and any `Origin`, so a web page could
+  rebind its hostname to localhost and read `/api/*` or create webhook rules.
+  Requests now need a loopback `Host`, and a browser `Origin`, when present,
+  must match it (403 otherwise). curl and MCP clients are unaffected.
+  Regression: `test/server-local-guard.test.ts`.
+- **Chart.js is served locally.** The dashboard loaded it from cdn.jsdelivr.net
+  (a third-party request on every open, no SRI, broken offline), which
+  contradicted the local-only claim. Chart.js 4.4.4 (MIT) is vendored under
+  `public/vendor/`. `test/no-network-surface.test.ts` fails if a network
+  primitive appears in `src/` outside `license.ts`, `rules.ts` and `proxy.ts`,
+  or if the page loads a third-party subresource.
+
+### Fixed
+- **`audit` / `stats` / `subagents` / `export` now ingest first.** A new user
+  running the README's `npx ... audit` as the first command got an empty
+  "run ingest first" report. These commands now do an incremental scan (and
+  print what to do on stderr when no logs exist, so `--json` stays clean).
+- **One bad log file no longer aborts ingest or dashboard start.** A file that
+  cannot be read or parsed is skipped, reported (`files_failed`, `errors`) and
+  retried next run.
+- **Large logs.** Session files are read through a chunked line reader instead
+  of `readFileSync`, which threw past V8's ~512 MB string limit.
+- **Codex reasoning tokens were double-counted when the log shows they are
+  already part of `output_tokens`.** The parser now uses the log's own
+  `total_tokens` to decide, and keeps the old additive behaviour when it is
+  absent. Codex `token_count` events whose cumulative total did not change are
+  no longer billed a second time. Stored rows are not recomputed.
+- **Forecast day counting across DST** (calendar day instead of milliseconds)
+  and a `low_confidence` flag on the forecast for the first two days of a month.
+- CLI: unknown commands name the command; database/permission errors print one
+  actionable line instead of a stack trace (`TOKEN_METER_DEBUG=1` for the
+  trace); `serve` explains a busy port and a bad `PORT`.
+- `npm run audit` honours `TOKENPULSE_DB`, opens the database read-only and
+  explains a missing one.
+- README no longer claims Cursor usage is tracked, and its privacy section now
+  lists every network call the code can make.
+
+### Added
+- **Estimated savings in `audit`.** Findings gain `potentialSavingsUsd` and
+  `savingsBasis`, and the summary gains `potentialSavingsUsd` (JSON schema and
+  docs updated; additive). Cache findings count only the write premium, short
+  high-cost sessions are re-priced on a lower tier, trim projections are carried
+  over; other types stay `null`. See docs/audit.md "How savings are estimated".
+- **English dashboard** (default unless the browser language is Korean;
+  `?lang=ko|en` and an EN/KO toggle). A test fails if a Korean string has no
+  translation.
+- Dashboard accessibility and states: skip link, labelled charts and dialogs,
+  ARIA tabs, keyboard-reachable session rows, live regions, focus ring,
+  per-section load errors with Retry, narrow-screen layout, no unprompted
+  notification permission request, and the real (plan-limited) window is shown
+  instead of the requested one.
+
+### Known gaps
+- Rate table not re-verified against the vendor pricing pages in this batch
+  (`npm run check:pricing` could not reach developers.openai.com from the build
+  sandbox).
+- Project names are decoded from the Claude Code folder name, so a hyphen in a
+  folder name shows as `/`. Fixing it changes the stored project key.
+- A growing session file is re-parsed in full on each scan (the dashboard scans
+  every 30 s).
+
 ## [0.1.29] — 2026-10-06
 
 ### Fixed

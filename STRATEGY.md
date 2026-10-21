@@ -1,8 +1,10 @@
 # Token Meter
 
-> **🟡 상태 (2026-06-28~): OSS-maintain.** stop-loss 회고(D-042 / `_workspace/stop_loss_retro_2026-06-28.md`)
-> 평결 = 보류. v0.1.20 게시 유지·무료·본인 dogfood. **신규 기능 빌드 종료(버그·보안만)**.
-> 에너지는 결제검증된 머니 트랙(Kolabtree·크몽·컨설팅)으로. 재개는 결제검증 distribution 채널 확보 후 사용자 명시 시만.
+> **🟡 상태 (2026-10-21 갱신): OSS-maintain 유지, 단 2026-10-21 사용자 명시 지시로 고도화 1회 수행.**
+> 2026-06-28 stop-loss 회고(D-042 / `_workspace/stop_loss_retro_2026-06-28.md`) 평결 = 보류. 그 결정(신규 기능 빌드 종료, 버그·보안만)은
+> 이번 작업(브랜치 `claude/token-meter-polish`, CHANGELOG `[Unreleased]`)에 한해 대체되었다: 보안(DNS rebinding 차단·CDN 제거)·정확성(Codex 중복 집계 등)·
+> 첫 5분 경험·audit 절감 추정·영어 대시보드·접근성. 가격/결제/라이선스 강제, npm publish, 릴리스 태그는 건드리지 않았다(릴리스는 사용자 몫).
+> 이 고도화 이후의 신규 기능 재개 여부는 여전히 결제검증 distribution 채널 확보 후 사용자 명시 시만.
 
 > 클라우드 + 로컬 LLM **성능·비용 통합 옵저버빌리티**. AI 빌더용 단일 대시보드.
 

@@ -22,9 +22,10 @@ tool, per hour. Your data never leaves your machine.
 npx -y @whdrnr2583/token-meter audit
 ```
 
-Scans your ingested Claude Code + Codex history for expensive sessions,
-oversized tool responses, slow tools, repeated calls, and cache waste, ranked
-by cost and confidence. Runs entirely against your local SQLite database —
+Scans your Claude Code + Codex history (it ingests new logs first, so this works
+as your very first command) for expensive sessions, oversized tool responses,
+slow tools, repeated calls, and cache waste, ranked by cost and confidence, with
+an estimated saving and the assumption behind it where one can be justified. Runs entirely against your local SQLite database —
 same local-first, no-cloud processing as the rest of Token Meter. Add
 `--json` for machine-readable output; see [docs/audit.md](docs/audit.md) for
 the full flag list and JSON schema.
