@@ -2,8 +2,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { migrate, openDb } from './db.js';
-import { ingestAll } from './ingest.js';
+import { countTokenEvents, migrate, openDb } from './db.js';
+import type Database from 'better-sqlite3';
+import { ensureFirstRunData, ingestAll } from './ingest.js';
 import { byHour, byMcp, byModel, byProject, daily, overview, subagentCosts } from './stats.js';
 import { forecastMonthly, getMonthlyBudget, setMonthlyBudget } from './forecast.js';
 import { exportCsv, exportJson } from './export.js';
@@ -147,6 +148,18 @@ export function registerLocalOnlyGuard(app: FastifyInstance): void {
   });
 }
 
+/**
+ * GET /api/status — the dashboard's first-run banner calls this. The route was
+ * missing, so the "no data yet, here is what to do" banner could never appear.
+ */
+export function registerStatusRoute(app: FastifyInstance, db: Database.Database): void {
+  app.get('/api/status', async () => {
+    const events = countTokenEvents(db);
+    const guidance = events > 0 ? '' : ensureFirstRunData(db, { ingest: () => undefined }).guidance;
+    return { has_data: events > 0, events, guidance };
+  });
+}
+
 export function parseDays(q: unknown): number {
   if (typeof q === 'string') {
     const n = Number.parseInt(q, 10);
@@ -195,6 +208,8 @@ export async function startDashboard(): Promise<void> {
       message: `${feature} is a Pro feature. See https://token-meter.dev#pricing`,
     };
   }
+
+  registerStatusRoute(app, db);
 
   app.get('/api/overview', async (req) => {
     const days = daysFromQuery((req.query as Record<string, unknown>).days);

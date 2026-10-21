@@ -132,6 +132,7 @@
     '시간': 'Time',
     '캐시 read': 'Cache read',
     '캐시 write': 'Cache write',
+    '세션 드릴다운은 Pro 기능입니다.': 'Session drill-down is a Pro feature.',
     '메시지 없음': 'No messages',
     '도구 호출 없음': 'No tool calls',
     '없음': 'None',

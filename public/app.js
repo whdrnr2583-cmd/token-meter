@@ -28,7 +28,11 @@ const STATE = { days: 30, charts: {} };
 
 async function api(path, init) {
   const res = await fetch(path, init);
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`${path}: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -577,8 +581,18 @@ function sessionLabel(r) {
 }
 
 async function renderSessions() {
-  const data = await api(`/api/sessions?days=${STATE.days}&limit=20`);
   const t = $('#table-sessions');
+  let data;
+  try {
+    data = await api(`/api/sessions?days=${STATE.days}&limit=20`);
+  } catch (err) {
+    // 402 = plan feature, not a failure: say so instead of raising the load-error banner.
+    if (err.status === 402) {
+      t.innerHTML = `<tbody><tr><td class="muted">${t_('세션 드릴다운은 Pro 기능입니다.')}</td></tr></tbody>`;
+      return;
+    }
+    throw err;
+  }
   if (!data.rows.length) {
     t.innerHTML = '<tbody><tr><td class="muted" colspan="6">데이터 없음</td></tr></tbody>';
     return;

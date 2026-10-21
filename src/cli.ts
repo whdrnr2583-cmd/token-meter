@@ -32,6 +32,7 @@ Environment:
   TOKENPULSE_DB                             Database path (default ~/.tokenpulse/usage.db)
   PORT                                      Dashboard port for "serve" (default 8765)
   TOKEN_METER_DEBUG=1                       Print stack traces on errors
+  TOKEN_METER_FULL_REPARSE=1                Always re-parse changed log files from byte 0 (disable resuming)
 
 Flags:
   -v, --version                             Print version

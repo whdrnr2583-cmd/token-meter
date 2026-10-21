@@ -26,7 +26,25 @@ release step is part of it.
   primitive appears in `src/` outside `license.ts`, `rules.ts` and `proxy.ts`,
   or if the page loads a third-party subresource.
 
+### Performance
+- **Growing session files are resumed, not re-parsed.** A file that only gained
+  lines is parsed from the saved byte offset (previously the whole file every
+  scan; the dashboard scans every 30 s). Resume state (unpaired `tool_use` ids,
+  Codex session/model/cumulative-total state, head+tail fingerprint, inode) is
+  stored in new additive `ingest_state` columns; rows from older versions have
+  none and are fully re-parsed once. Falls back to a full parse when the file
+  shrank, was replaced or edited before the saved offset, or its state is
+  oversized. A trailing line without `\n` is never consumed. Escape hatch:
+  `TOKEN_METER_FULL_REPARSE=1`. Equal-total duplicates now resolve to the
+  later-timestamped sighting in the database too, matching the in-file rule.
+  Tests: `test/incremental-ingest.test.ts` (staged ingest equals one full parse
+  across line- and byte-level splits for Claude, sub-agents and Codex).
+
 ### Fixed
+- **The dashboard's first-run banner never appeared**: it called `/api/status`,
+  which did not exist. Route added; a test now checks every `/api/` path the
+  page calls is registered. Plan-limited features (HTTP 402) show a short note
+  instead of the load-error banner.
 - **`audit` / `stats` / `subagents` / `export` now ingest first.** A new user
   running the README's `npx ... audit` as the first command got an empty
   "run ingest first" report. These commands now do an incremental scan (and
