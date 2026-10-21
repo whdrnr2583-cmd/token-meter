@@ -66,10 +66,20 @@ release step is part of it.
   notification permission request, and the real (plan-limited) window is shown
   instead of the requested one.
 
+### Changed
+- **Email rule action removed from the UI and rejected by the API.** It was an
+  unwired stub (it only logged `skipped:email_not_wired_until_m3`). New or
+  edited rules with `notify.email` get HTTP 400 (`field: action_type`); rules
+  saved earlier keep loading, show as "Email (inactive)", and can be toggled or
+  deleted. Docs updated.
+- `npm run check:pricing -- --only anthropic|openai` verifies one vendor when
+  the other page is unreachable and says which vendor was not verified.
+
 ### Known gaps
-- Rate table not re-verified against the vendor pricing pages in this batch
-  (`npm run check:pricing` could not reach developers.openai.com from the build
-  sandbox).
+- Rate table: the 17 comparable Anthropic rows were checked against the live
+  pricing page on 2026-10-21 (0 differences); the OpenAI rows could not be
+  fetched from the build sandbox and are NOT verified. Checklist in
+  RELEASE_RUNBOOK.md.
 - Project names are decoded from the Claude Code folder name, so a hyphen in a
   folder name shows as `/`. Fixing it changes the stored project key.
 - A growing session file is re-parsed in full on each scan (the dashboard scans
