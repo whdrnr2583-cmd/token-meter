@@ -4,12 +4,15 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { getIngestState, insertTokenEvents, insertToolEvents, recordIngest } from './db.js';
 import { parseCodexSession } from './codex-parser.js';
+import type { CodexParseState } from './codex-parser.js';
+import { buildResume, planResume } from './incremental.js';
 import { scanWindowsUserDirs } from './platform.js';
 
 export interface CodexIngestSummary {
   files_scanned: number;
   files_processed: number;
   files_failed: number;
+  files_incremental: number;
   errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
@@ -61,6 +64,7 @@ export function ingestCodex(
     files_scanned: 0,
     files_processed: 0,
     files_failed: 0,
+    files_incremental: 0,
     errors: [],
     token_rows_inserted: 0,
     tool_rows_inserted: 0,
@@ -88,12 +92,20 @@ export function ingestCodex(
         prior.mtime_ms === Math.floor(st.mtimeMs) &&
         prior.size === st.size;
       if (unchanged) continue;
+      const plan = planResume(filePath, prior, st, !!options.force);
 
       try {
-        const { tokens, tools } = parse(filePath);
+        const parsed = plan
+          ? parse(filePath, { startOffset: plan.startOffset, state: plan.state as CodexParseState })
+          : parse(filePath);
+        const { tokens, tools } = parsed;
         const ti = insertTokenEvents(db, tokens);
         const tl = insertToolEvents(db, tools);
-        recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
+        recordIngest(
+          db, filePath, Math.floor(st.mtimeMs), st.size,
+          parsed.state ? buildResume(filePath, parsed.endOffset, parsed.state, st.ino) : undefined,
+        );
+        if (plan) summary.files_incremental++;
         summary.files_processed++;
         summary.token_rows_inserted += ti;
         summary.tool_rows_inserted += tl;

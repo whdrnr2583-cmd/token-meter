@@ -11,6 +11,8 @@ import {
   upsertAgentMeta,
 } from './db.js';
 import { parseJsonlFile } from './parser.js';
+import type { ClaudeParseState } from './parser.js';
+import { buildResume, planResume } from './incremental.js';
 import { ingestCodex, codexSessionsDirs } from './codex-ingest.js';
 import { isWsl, scanWindowsUserDirs } from './platform.js';
 
@@ -24,6 +26,8 @@ export interface IngestSummary {
   files_processed: number;
   /** Files that could not be read/parsed (skipped; retried on the next run). */
   files_failed: number;
+  /** Files parsed from a saved offset (only appended bytes) instead of from byte 0. */
+  files_incremental: number;
   /** First few "<path>: <reason>" messages for failed files. */
   errors: string[];
   token_rows_inserted: number;
@@ -152,6 +156,7 @@ export function ingestClaudeCode(
     files_scanned: 0,
     files_processed: 0,
     files_failed: 0,
+    files_incremental: 0,
     errors: [],
     token_rows_inserted: 0,
     tool_rows_inserted: 0,
@@ -214,15 +219,24 @@ export function ingestClaudeCode(
           prior.mtime_ms === Math.floor(st.mtimeMs) &&
           prior.size === st.size;
         if (unchanged) continue;
+        // Append-only growth => parse just the new bytes; anything else => whole file.
+        const plan = planResume(filePath, prior, st, !!options.force);
         // One unreadable/oversized/locked file must not abort the whole scan
         // (or the dashboard's boot ingest). Skip it, report it, and leave its
         // ingest_state unrecorded so the next run retries it.
         try {
-          const { tokens, tools } = parse(filePath, prettyName, agentId);
+          const parsed = plan
+            ? parse(filePath, prettyName, agentId, { startOffset: plan.startOffset, state: plan.state as ClaudeParseState })
+            : parse(filePath, prettyName, agentId);
+          const { tokens, tools } = parsed;
           const ti = insertTokenEvents(db, tokens);
           const tl = insertToolEvents(db, tools);
           if (agentId) ingestAgentMeta(db, filePath, agentId);
-          recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
+          recordIngest(
+            db, filePath, Math.floor(st.mtimeMs), st.size,
+            parsed.state ? buildResume(filePath, parsed.endOffset, parsed.state, st.ino) : undefined,
+          );
+          if (plan) summary.files_incremental++;
           summary.files_processed++;
           summary.token_rows_inserted += ti;
           summary.tool_rows_inserted += tl;

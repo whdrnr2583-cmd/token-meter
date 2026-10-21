@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import type { ContentBlock, JsonlEntry, TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
-import { readLines } from './jsonl-lines.js';
+import { readLineItems } from './jsonl-lines.js';
 
 const MCP_PREFIX_RE = /^mcp__([^_]+(?:_[^_]+)*?)__/;
 
@@ -55,12 +55,29 @@ function flattenToolResult(content: string | ContentBlock[] | undefined): string
 export interface ParseResult {
   tokens: TokenEvent[];
   tools: ToolEvent[];
+  /** Byte offset just past the last newline-terminated line consumed. */
+  endOffset: number;
+  /** Carry-over needed to continue parsing from endOffset (null = cannot resume). */
+  state: ClaudeParseState;
+}
+
+/** tool_use blocks seen but not yet paired with their tool_result. */
+export interface ClaudeParseState {
+  v: 1;
+  pending: Array<[string, { ts: number; name: string; fileExt: string | null }]>;
+}
+
+export interface ParseOptions {
+  /** Resume at this byte offset (must be a line start) with `state` from the previous run. */
+  startOffset?: number;
+  state?: ClaudeParseState | null;
 }
 
 export function parseJsonlFile(
   filePath: string,
   projectName: string,
   agentId: string | null = null,
+  opts: ParseOptions = {},
 ): ParseResult {
   const sessionId = basename(filePath).replace(/\.jsonl$/, '');
 
@@ -84,9 +101,20 @@ export function parseJsonlFile(
   const requestIdIndex = new Map<string, number>();
 
   // For latency: tool_use timestamp keyed by id.
-  const toolUseTimestamps = new Map<string, { ts: number; name: string; fileExt: string | null }>();
+  const toolUseTimestamps = new Map<string, { ts: number; name: string; fileExt: string | null }>(
+    opts.state?.pending ?? [],
+  );
+  const snapshot = (): ClaudeParseState => ({ v: 1, pending: [...toolUseTimestamps.entries()] });
+  let endOffset = opts.startOffset ?? 0;
+  let stateAtEnd: ClaudeParseState | null = null;
 
-  for (const line of readLines(filePath)) {
+  for (const item of readLineItems(filePath, opts.startOffset ?? 0)) {
+    const line = item.line;
+    // A final line without '\n' may still be mid-write: it is parsed for output
+    // (a complete last line is billed, as before) but is NOT consumed — the
+    // resume offset and carried state stop before it, so it is re-read once complete.
+    if (!item.terminated && stateAtEnd === null) stateAtEnd = snapshot();
+    if (item.terminated) endOffset = item.end;
     if (!line) continue;
     let entry: JsonlEntry;
     try {
@@ -201,5 +229,5 @@ export function parseJsonlFile(
     }
   }
 
-  return { tokens, tools };
+  return { tokens, tools, endOffset, state: stateAtEnd ?? snapshot() };
 }

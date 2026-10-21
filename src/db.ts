@@ -189,6 +189,18 @@ export function migrate(db: Database.Database): void {
   if (!columnExists(db, 'token_events', 'cache_write_1h_tokens')) {
     db.exec(`ALTER TABLE token_events ADD COLUMN cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0`);
   }
+  // Incremental ingest (v0.1.30). ingest_state already had last_offset (always
+  // = file size so far, never used). These additive nullable columns let the next
+  // scan resume at last_offset instead of re-parsing a growing file from byte 0:
+  //  - state_json: parser carry-over (unpaired tool_use ids, Codex session/model
+  //    state). NULL on every row written by an older version => those files are
+  //    re-parsed in full once, then become resumable.
+  //  - head_hash / tail_hash: sha1 of the first and last <=4 KiB before last_offset,
+  //    so a rewritten/edited file is detected and falls back to a full re-parse.
+  //  - ino: file identity (rotated/replaced file => full re-parse).
+  for (const [col, type] of [['state_json', 'TEXT'], ['head_hash', 'TEXT'], ['tail_hash', 'TEXT'], ['ino', 'TEXT']] as const) {
+    if (!columnExists(db, 'ingest_state', col)) db.exec(`ALTER TABLE ingest_state ADD COLUMN ${col} ${type}`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_token_events_agent ON token_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_events_agent ON tool_events(agent_id);
@@ -290,6 +302,17 @@ export function insertTokenEvents(db: Database.Database, rows: TokenEvent[]): nu
         + excluded.cache_read_tokens + excluded.cache_write_tokens
       > token_events.input_tokens + token_events.output_tokens
         + token_events.cache_read_tokens + token_events.cache_write_tokens
+      -- Equal totals: a later-timestamped sighting wins, matching the in-file
+      -- parser rule (last write wins on ties). Needed so an incremental ingest
+      -- that sees the later duplicate in a later batch ends up identical to one
+      -- full parse. Re-ingesting an unchanged file has equal ts => still a no-op.
+      OR (
+        excluded.input_tokens + excluded.output_tokens
+          + excluded.cache_read_tokens + excluded.cache_write_tokens
+        = token_events.input_tokens + token_events.output_tokens
+          + token_events.cache_read_tokens + token_events.cache_write_tokens
+        AND excluded.ts > token_events.ts
+      )
   `);
   // Backfill agent_id onto a row that already existed and whose total did NOT
   // grow (so the upsert above was a no-op). Lets a re-ingest (`ingest --force`)
@@ -393,25 +416,48 @@ export function upsertAgentMeta(
   ).run(agentId, agentType, description);
 }
 
+export interface IngestResume {
+  /** Bytes consumed (end of the last complete line). */
+  offset: number;
+  stateJson: string;
+  headHash: string;
+  tailHash: string;
+  ino: string;
+}
+
 export function recordIngest(
   db: Database.Database,
   file: string,
   mtimeMs: number,
   size: number,
+  resume?: IngestResume,
 ): void {
   db.prepare(
-    `INSERT OR REPLACE INTO ingest_state (file, mtime_ms, size, last_offset, processed_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(file, mtimeMs, size, size, Date.now());
+    `INSERT OR REPLACE INTO ingest_state
+       (file, mtime_ms, size, last_offset, processed_at, state_json, head_hash, tail_hash, ino)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    file, mtimeMs, size, resume ? resume.offset : size, Date.now(),
+    resume?.stateJson ?? null, resume?.headHash ?? null, resume?.tailHash ?? null, resume?.ino ?? null,
+  );
 }
 
-export function getIngestState(
-  db: Database.Database,
-  file: string,
-): { mtime_ms: number; size: number } | undefined {
+export interface IngestStateRow {
+  mtime_ms: number;
+  size: number;
+  last_offset: number;
+  state_json: string | null;
+  head_hash: string | null;
+  tail_hash: string | null;
+  ino: string | null;
+}
+
+export function getIngestState(db: Database.Database, file: string): IngestStateRow | undefined {
   return db
-    .prepare(`SELECT mtime_ms, size FROM ingest_state WHERE file = ?`)
-    .get(file) as { mtime_ms: number; size: number } | undefined;
+    .prepare(
+      `SELECT mtime_ms, size, last_offset, state_json, head_hash, tail_hash, ino FROM ingest_state WHERE file = ?`,
+    )
+    .get(file) as IngestStateRow | undefined;
 }
 
 /**

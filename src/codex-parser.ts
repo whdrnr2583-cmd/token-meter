@@ -1,7 +1,7 @@
 import type { TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
 import { estimateTokensFromText } from './parser.js';
-import { readLines } from './jsonl-lines.js';
+import { readLineItems, readLines } from './jsonl-lines.js';
 
 interface CodexLastTokenUsage {
   input_tokens?: number;
@@ -49,21 +49,43 @@ function extractModel(instructionText: string): string {
   return 'gpt-5';
 }
 
+/** Everything needed to continue parsing a Codex session file from a byte offset. */
+export interface CodexParseState {
+  v: 1;
+  sessionId: string;
+  cwd: string;
+  model: string;
+  currentModel: string;
+  prevTotalKey: string;
+  pending: Array<[string, { ts: number; name: string }]>;
+}
+
 export interface ParseCodexResult {
   tokens: TokenEvent[];
   tools: ToolEvent[];
+  /** Byte offset just past the last newline-terminated line consumed. */
+  endOffset: number;
+  /** null when the file has no session_meta (nothing to resume; always re-parsed in full). */
+  state: CodexParseState | null;
 }
 
-export function parseCodexSession(filePath: string): ParseCodexResult {
-  let sessionId = '';
-  let cwd = 'unknown';
-  let model = 'gpt-5';
+export interface ParseCodexOptions {
+  startOffset?: number;
+  state?: CodexParseState | null;
+}
+
+export function parseCodexSession(filePath: string, opts: ParseCodexOptions = {}): ParseCodexResult {
+  let sessionId = opts.state?.sessionId ?? '';
+  let cwd = opts.state?.cwd ?? 'unknown';
+  let model = opts.state?.model ?? 'gpt-5';
   const tokens: TokenEvent[] = [];
   const tools: ToolEvent[] = [];
+  const resuming = !!opts.state;
 
-  // First pass: read session_meta (always early in file).
+  // First pass: read session_meta (always early in file). Skipped when resuming:
+  // the previous run already found it and carried it in `state`.
   let headLines = 0;
-  for (const line of readLines(filePath)) {
+  for (const line of resuming ? [] : readLines(filePath)) {
     if (++headLines > 5) break;
     if (!line) continue;
     let entry: CodexEntry;
@@ -82,7 +104,7 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     }
   }
 
-  if (!sessionId) return { tokens, tools };
+  if (!sessionId) return { tokens, tools, endOffset: opts.startOffset ?? 0, state: null };
 
   // Second pass: token_count events (billing) + function_call/custom_tool_call
   // ↔ *_output pairing (tool events). `currentModel` tracks the model
@@ -92,16 +114,26 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
   // turn_context at all (older Codex versions) never update it, so every
   // token_count event bills under the session_meta-derived `model` fallback
   // from the first pass above.
-  let currentModel = model;
+  let currentModel = opts.state?.currentModel ?? model;
   // call_id -> the function_call/custom_tool_call entry awaiting its
   // *_output pair. An unmatched pending call (session ended mid-call) is
   // simply never flushed to `tools` — no partial/guessed event.
-  const pendingToolCalls = new Map<string, { ts: number; name: string }>();
+  const pendingToolCalls = new Map<string, { ts: number; name: string }>(opts.state?.pending ?? []);
 
   // Cumulative totals of the previous token_count event, to skip repeats.
-  let prevTotalKey = '';
+  let prevTotalKey = opts.state?.prevTotalKey ?? '';
 
-  for (const line of readLines(filePath)) {
+  const snapshot = (): CodexParseState => ({
+    v: 1, sessionId, cwd, model, currentModel, prevTotalKey, pending: [...pendingToolCalls.entries()],
+  });
+  let endOffset = opts.startOffset ?? 0;
+  let stateAtEnd: CodexParseState | null = null;
+
+  for (const item of readLineItems(filePath, opts.startOffset ?? 0)) {
+    const line = item.line;
+    // Unterminated final line: parsed for output, but not consumed (see parser.ts).
+    if (!item.terminated && stateAtEnd === null) stateAtEnd = snapshot();
+    if (item.terminated) endOffset = item.end;
     if (!line) continue;
     let entry: CodexEntry;
     try {
@@ -218,5 +250,5 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     });
   }
 
-  return { tokens, tools };
+  return { tokens, tools, endOffset, state: stateAtEnd ?? snapshot() };
 }
