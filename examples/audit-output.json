@@ -37,6 +37,7 @@
   "summary": {
     "findingCount": 3,
     "costAssociatedUsd": 12.8828,
+    "potentialSavingsUsd": 0.4128,
     "overallConfidence": "high",
     "findingsMayOverlap": false
   },
@@ -60,6 +61,8 @@
         "project": "/Users/example/my-project"
       },
       "estimatedCostUsd": 12.47,
+      "potentialSavingsUsd": null,
+      "savingsBasis": null,
       "costLabel": "estimated_cost",
       "confidence": "high",
       "evidence": [
@@ -70,7 +73,9 @@
         "Review this session's transcript to see what drove the cost (model choice, tool calls, context size).",
         "Compare it against similar sessions to see whether this cost is typical for this kind of task."
       ],
-      "costEventIds": ["session:claude-code:sess-abc123"]
+      "costEventIds": [
+        "session:claude-code:sess-abc123"
+      ]
     },
     {
       "id": "b2c3d4e5f6a7b8c9",
@@ -90,6 +95,8 @@
         "maxTokens": 15600
       },
       "estimatedCostUsd": 0.4128,
+      "potentialSavingsUsd": 0.4128,
+      "savingsBasis": "Projected per-week saving from trimming this tool's responses: assumes a fixed reducible share of response tokens (20-50% by pattern), priced at input rates.",
       "costLabel": "cost_associated",
       "confidence": "high",
       "evidence": [
@@ -103,7 +110,9 @@
         "Summarize or post-process [notion] notion_search's response before it enters the model context, if the full payload isn't needed downstream.",
         "Check whether repeated [notion] notion_search calls return duplicate or already-seen context that could be deduplicated or cached."
       ],
-      "costEventIds": ["tool:notion_search:notion"]
+      "costEventIds": [
+        "tool:notion_search:notion"
+      ]
     },
     {
       "id": "c3d4e5f6a7b8c9d0",
@@ -124,6 +133,8 @@
         "avgResponseChars": 2340
       },
       "estimatedCostUsd": null,
+      "potentialSavingsUsd": null,
+      "savingsBasis": null,
       "costLabel": "not_available",
       "confidence": "medium",
       "evidence": [

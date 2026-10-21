@@ -57,12 +57,16 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["findingCount", "costAssociatedUsd", "overallConfidence", "findingsMayOverlap"],
+      "required": ["findingCount", "costAssociatedUsd", "potentialSavingsUsd", "overallConfidence", "findingsMayOverlap"],
       "properties": {
         "findingCount": { "type": "integer", "minimum": 0 },
         "costAssociatedUsd": {
           "type": ["number", "null"],
           "description": "Sum of findings[].estimatedCostUsd, deduplicated across shared costEventIds. null when no finding has a priced cost."
+        },
+        "potentialSavingsUsd": {
+          "type": ["number", "null"],
+          "description": "Sum of findings[].potentialSavingsUsd (approximate: findings use different mechanisms). null when no finding has one."
         },
         "overallConfidence": { "$ref": "#/definitions/Confidence" },
         "findingsMayOverlap": {
@@ -141,6 +145,8 @@
         "toolName",
         "metrics",
         "estimatedCostUsd",
+        "potentialSavingsUsd",
+        "savingsBasis",
         "costLabel",
         "confidence",
         "evidence",
@@ -169,6 +175,11 @@
           "description": "Detector-specific numeric/string evidence (e.g. { avgTokens, calls }). Shape varies by `type` — not fixed by this schema."
         },
         "estimatedCostUsd": { "type": ["number", "null"] },
+        "potentialSavingsUsd": {
+          "type": ["number", "null"],
+          "description": "USD that could plausibly be avoided (an estimate with the finding's `confidence`), distinct from estimatedCostUsd which is money involved. null when no defensible formula exists for this finding type."
+        },
+        "savingsBasis": { "type": ["string", "null"], "description": "The assumption behind potentialSavingsUsd." },
         "costLabel": { "$ref": "#/definitions/CostLabel" },
         "confidence": { "$ref": "#/definitions/Confidence" },
         "evidence": {

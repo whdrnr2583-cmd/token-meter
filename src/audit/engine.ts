@@ -49,6 +49,7 @@
  * nothing worth flagging".
  */
 
+import { attachSavings, totalSavings } from './savings.js';
 import type Database from 'better-sqlite3';
 import { overview, scopeClause } from '../stats.js';
 import type { ScopeFilter } from '../stats.js';
@@ -432,6 +433,7 @@ export function runAudit(db: Database.Database, opts: RunAuditOptions = {}): Aud
   }
 
   const rankedFindings = rankFindings(allFindings, limit);
+  attachSavings(db, rankedFindings, sinceMs, untilMs);
   const { total: costAssociatedUsd, overlapDetected } = computeCostAssociated(rankedFindings);
 
   // An empty report makes no uncertain claims — see this file's header for
@@ -464,6 +466,7 @@ export function runAudit(db: Database.Database, opts: RunAuditOptions = {}): Aud
     summary: {
       findingCount: rankedFindings.length,
       costAssociatedUsd,
+      potentialSavingsUsd: totalSavings(rankedFindings),
       overallConfidence,
       findingsMayOverlap: overlapDetected,
     },

@@ -99,6 +99,12 @@ export function formatTerminal(report: AuditReport): string {
         ? ' (some findings reference overlapping spend; de-duplicated)'
         : ''),
   );
+  if (report.summary.potentialSavingsUsd != null) {
+    lines.push(
+      `Potential savings: ~${fmtUsd(report.summary.potentialSavingsUsd)} ` +
+        '(estimate; each finding states its assumption and confidence below)',
+    );
+  }
   lines.push(`Confidence: ${report.summary.overallConfidence}`);
   lines.push('');
 
@@ -113,6 +119,9 @@ export function formatTerminal(report: AuditReport): string {
       lines.push(`Tool: ${f.toolName ?? '-'}`);
       lines.push(`Evidence: ${f.evidence.join(' ')}`);
       lines.push(`Confidence: ${f.confidence}`);
+      if (f.potentialSavingsUsd != null) {
+        lines.push(`Potential savings: ~${fmtUsd(f.potentialSavingsUsd)} (${f.confidence} confidence) — ${f.savingsBasis ?? ''}`);
+      }
       lines.push(`Suggested action: ${f.recommendations[0] ?? '-'}`);
       lines.push('');
     }
