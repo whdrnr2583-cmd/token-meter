@@ -54,14 +54,17 @@ const VALID_OPS = new Set<RuleOp>(['>=', '>']);
 const VALID_ACTIONS = new Set<ActionType>([
   'notify.desktop',
   'notify.webhook',
-  'notify.email',
 ]);
+// 'notify.email' is intentionally NOT accepted for new/updated rules: the
+// delivery path is an unwired stub, so creating such a rule would silently do
+// nothing. Rules already stored with it keep loading (the evaluator reports
+// 'skipped:email_not_wired_until_m3'); they can be toggled or deleted.
 
 interface ValidationError {
   ok: false;
   field: string;
 }
-function validateRuleFields(
+export function validateRuleFields(
   patch: Partial<RuleInput>,
   required: boolean,
 ): ValidationError | null {

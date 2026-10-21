@@ -231,6 +231,8 @@ function enqueueDesktop(db: Database.Database, rule: Rule, payload: FiringPayloa
 }
 
 async function executeEmail(_rule: Rule, _payload: FiringPayload): Promise<string> {
+  // Not offered for new rules (server rejects it); kept so a rule stored by an
+  // older version still evaluates without throwing.
   // M3: call Workers /v1/action/email with stored license_key.
   // Skeleton returns a stub so the evaluator can be tested without M3 infra.
   return 'skipped:email_not_wired_until_m3';

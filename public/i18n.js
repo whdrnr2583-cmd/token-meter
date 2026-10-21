@@ -45,8 +45,8 @@
     '호출 순서': 'Call order',
     '알림 룰 (Actions)': 'Alert rules',
     '+ 새 룰': '+ New rule',
-    '임계값 초과 시 데스크탑 알림 / 웹훅 발송 (이메일은 아직 발송되지 않음). 24시간 쿨다운 기본. Slack·Discord·n8n 등 추가 채널은 웹훅 +':
-      'Desktop notification or webhook when a threshold is exceeded (email is not sent yet). 24-hour cooldown by default. For Slack, Discord, n8n and other channels use a webhook —',
+    '임계값 초과 시 데스크탑 알림 / 웹훅 발송. 24시간 쿨다운 기본. Slack·Discord·n8n 등 추가 채널은 웹훅 +':
+      'Desktop notification or webhook when a threshold is exceeded. 24-hour cooldown by default. For Slack, Discord, n8n and other channels use a webhook —',
     '커스터마이즈 가이드': 'customization guide',
     '참조.': 'for details.',
     // rule dialog
@@ -65,11 +65,10 @@
     '액션': 'Action',
     '데스크탑 알림 (Free·Pro)': 'Desktop notification (Free · Pro)',
     '웹훅 POST (Pro)': 'Webhook POST (Pro)',
-    '이메일 (Pro, 준비 중 — 아직 발송되지 않음)': 'Email (Pro, coming soon — not sent yet)',
     '웹훅 URL': 'Webhook URL',
     '⚠ 본인이 신뢰하는 URL만 입력하세요. 내부 호스트(localhost·private IP)를 가리키면 SSRF 위험.':
       '⚠ Only enter URLs you trust. Pointing at internal hosts (localhost, private IPs) risks SSRF.',
-    '이메일': 'Email',
+    '이메일 (비활성)': 'Email (inactive)',
     '쿨다운 (시간)': 'Cooldown (hours)',
     '드라이런 (30일 미리보기)': 'Dry run (30-day preview)',
     '취소': 'Cancel',

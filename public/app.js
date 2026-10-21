@@ -380,7 +380,7 @@ const METRIC_LABEL = {
 const ACTION_LABEL = {
   'notify.desktop': '데스크탑',
   'notify.webhook': '웹훅',
-  'notify.email': '이메일',
+  'notify.email': '이메일 (비활성)',
 };
 
 function fmtThreshold(metric, v) {
@@ -416,7 +416,7 @@ async function renderRules() {
             <td class="muted">${esc(last)}</td>
             <td class="row-actions">
               <button data-act="toggle">${r.enabled ? '끄기' : '켜기'}</button>
-              <button data-act="edit">수정</button>
+              ${r.action_type === 'notify.email' ? '' : '<button data-act="edit">수정</button>'}
               <button data-act="delete" class="danger">삭제</button>
             </td>
           </tr>
@@ -444,7 +444,6 @@ function openRuleDialog(rule) {
     try {
       const cfg = JSON.parse(rule.action_config);
       if (rule.action_type === 'notify.webhook') f.webhook_url.value = cfg.url ?? '';
-      if (rule.action_type === 'notify.email')   f.email_to.value   = cfg.to  ?? '';
     } catch {}
   }
   toggleActionFields();
@@ -455,7 +454,6 @@ function openRuleDialog(rule) {
 function toggleActionFields() {
   const v = $('#rule-form').action_type.value;
   $('#webhook-url-field').hidden = v !== 'notify.webhook';
-  $('#email-to-field').hidden    = v !== 'notify.email';
 }
 
 async function submitRule(e) {
@@ -464,7 +462,6 @@ async function submitRule(e) {
   const action_type = f.action_type.value;
   const action_config =
     action_type === 'notify.webhook' ? { url: f.webhook_url.value } :
-    action_type === 'notify.email'   ? { to:  f.email_to.value }    :
     { title: f.name.value };
   const body = {
     name: f.name.value,

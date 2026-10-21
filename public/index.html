@@ -123,7 +123,7 @@
           <button id="rule-new" type="button" class="btn-primary">+ 새 룰</button>
         </div>
         <p class="hint">
-          임계값 초과 시 데스크탑 알림 / 웹훅 발송 (이메일은 아직 발송되지 않음). 24시간 쿨다운 기본.
+          임계값 초과 시 데스크탑 알림 / 웹훅 발송. 24시간 쿨다운 기본.
           Slack·Discord·n8n 등 추가 채널은 웹훅 + <a href="https://github.com/whdrnr2583-cmd/token-meter/blob/main/docs/customization.md" target="_blank" rel="noreferrer">커스터마이즈 가이드</a> 참조.
         </p>
         <div class="table-wrap"><table id="table-rules"></table></div>
@@ -160,15 +160,11 @@
             <select name="action_type" required>
               <option value="notify.desktop">데스크탑 알림 (Free·Pro)</option>
               <option value="notify.webhook">웹훅 POST (Pro)</option>
-              <option value="notify.email">이메일 (Pro, 준비 중 — 아직 발송되지 않음)</option>
             </select>
           </label>
           <label id="webhook-url-field" hidden>웹훅 URL
             <input name="webhook_url" type="url" placeholder="https://hooks.slack.com/..." />
             <small class="warn-text">⚠ 본인이 신뢰하는 URL만 입력하세요. 내부 호스트(localhost·private IP)를 가리키면 SSRF 위험.</small>
-          </label>
-          <label id="email-to-field" hidden>이메일
-            <input name="email_to" type="email" placeholder="you@example.com" />
           </label>
           <label>쿨다운 (시간)
             <input name="cooldown_hours" type="number" min="0" step="1" value="24" />
