@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -93,6 +93,57 @@ function validateRuleFields(
   return null;
 }
 
+// ---------- Local-only request guard ----------
+// The dashboard binds to 127.0.0.1, but that alone does not keep other web pages
+// out: a malicious site can DNS-rebind its own hostname to 127.0.0.1 (then the
+// browser treats http://evil.example:8765 as same-origin and lets the page read
+// every /api response and POST rules/webhooks), and any page can fire simple
+// cross-site requests at localhost. Requiring a loopback Host header defeats
+// rebinding, and requiring Origin (when the browser sends one) to match Host
+// defeats cross-site writes. Non-browser clients (curl, MCP) send no Origin and
+// are unaffected.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function hostnameOf(hostHeader: string): string {
+  // "[::1]:8765" -> "[::1]"; "localhost:8765" -> "localhost"
+  if (hostHeader.startsWith('[')) {
+    const end = hostHeader.indexOf(']');
+    return end === -1 ? hostHeader.toLowerCase() : hostHeader.slice(0, end + 1).toLowerCase();
+  }
+  return hostHeader.split(':')[0]!.toLowerCase();
+}
+
+export function checkLocalRequest(headers: {
+  host?: string | undefined;
+  origin?: string | undefined;
+}): { ok: true } | { ok: false; reason: string } {
+  const host = headers.host;
+  if (!host || !LOOPBACK_HOSTS.has(hostnameOf(host))) {
+    return { ok: false, reason: 'host_not_allowed' };
+  }
+  const origin = headers.origin;
+  if (origin !== undefined && origin !== '') {
+    let originHost: string;
+    try {
+      originHost = new URL(origin).host.toLowerCase();
+    } catch {
+      return { ok: false, reason: 'origin_not_allowed' };
+    }
+    if (originHost !== host.toLowerCase()) return { ok: false, reason: 'origin_not_allowed' };
+  }
+  return { ok: true };
+}
+
+export function registerLocalOnlyGuard(app: FastifyInstance): void {
+  app.addHook('onRequest', async (req, reply) => {
+    const r = checkLocalRequest({
+      host: req.headers.host,
+      origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    });
+    if (!r.ok) return reply.code(403).send({ error: r.reason });
+  });
+}
+
 export function parseDays(q: unknown): number {
   if (typeof q === 'string') {
     const n = Number.parseInt(q, 10);
@@ -116,12 +167,21 @@ const PUBLIC_DIR = join(__dirname, '..', 'public');
 
 export async function startDashboard(): Promise<void> {
   const PORT = Number.parseInt(process.env.PORT ?? '8765', 10);
+  if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
+    throw new Error(`Invalid PORT "${process.env.PORT}" (expected 0-65535).`);
+  }
   const db = openDb();
   migrate(db);
-  // Initial ingest on boot.
-  ingestAll(db);
+  // Initial ingest on boot. A scan problem must not stop the dashboard from
+  // starting: it can still show whatever is already in the database.
+  try {
+    ingestAll(db);
+  } catch (err) {
+    console.error(`Initial log scan failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   const app = Fastify({ logger: false });
+  registerLocalOnlyGuard(app);
 
   await app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/' });
 
@@ -448,7 +508,16 @@ export async function startDashboard(): Promise<void> {
     return { days, count: suggestions.length, suggestions };
   });
 
-  await app.listen({ host: '127.0.0.1', port: PORT });
+  try {
+    await app.listen({ host: '127.0.0.1', port: PORT });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      throw new Error(
+        `Port ${PORT} is already in use (is another token-meter running?). Pick another with PORT=<n> token-meter serve.`,
+      );
+    }
+    throw err;
+  }
   console.log(`Token Meter dashboard ready at http://127.0.0.1:${PORT}`);
 
   // Periodic incremental ingest + rule evaluation every 30 seconds.
@@ -466,7 +535,7 @@ export async function startDashboard(): Promise<void> {
 // When imported by another module (cli.ts), this stays dormant.
 if (process.argv[1] === __filename) {
   startDashboard().catch((err) => {
-    console.error(err);
+    console.error(err instanceof Error ? err.message : err);
     process.exit(1);
   });
 }
