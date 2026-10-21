@@ -1,4 +1,6 @@
 const $ = (sel) => document.querySelector(sel);
+// i18n.js defines window.t; fall back to the Korean source text if it did not load.
+const t_ = typeof window.t === 'function' ? window.t : (k, v) => (v ? k.replace(/\{(\w+)\}/g, (m, n) => (v[n] ?? m)) : k);
 
 // Escape user-controlled strings before interpolating into innerHTML.
 // JSONL data (model name, project path, tool name, MCP server name, rule name,
@@ -30,6 +32,14 @@ async function api(path, init) {
   return res.json();
 }
 
+function makeNotice(text) {
+  const node = document.createElement('div');
+  node.className = 'hint plan-notice';
+  node.style.gridColumn = '1 / -1';
+  node.textContent = text;
+  return node;
+}
+
 function makeCard(label, value, sub, accent) {
   const node = document.createElement('div');
   node.className = 'card';
@@ -59,11 +69,12 @@ async function renderEmptyState() {
   }
   const guide = esc(status.guidance || 'No Claude Code or Codex usage found yet.');
   box.innerHTML = `
-    <h2>아직 사용 데이터가 없습니다</h2>
+    <h2>${t_('아직 사용 데이터가 없습니다')}</h2>
     <p>${guide.replace(/\n/g, '<br>')}</p>
-    <p>Claude Code / Codex를 한 번 사용한 뒤 터미널에서
-       <code>token-meter ingest</code> 를 실행하거나 우측 상단
-       <strong>↻ 새로고침</strong> 을 누르세요.</p>
+    <p>${t_('Claude Code / Codex를 한 번 사용한 뒤 터미널에서 {cmd} 를 실행하거나 우측 상단 {btn} 을 누르세요.', {
+      cmd: '<code>token-meter ingest</code>',
+      btn: `<strong>${t_('↻ 새로고침')}</strong>`,
+    })}</p>
   `;
   box.hidden = false;
   return false;
@@ -73,10 +84,16 @@ async function renderOverview() {
   const data = await api(`/api/overview?days=${STATE.days}`);
   const wrap = $('#overview-cards');
   wrap.innerHTML = '';
-  wrap.append(makeCard('비용 (USD, Anthropic API 기준)', fmtUsd(data.total_usd), `${STATE.days}일 누적`, true));
-  wrap.append(makeCard('출력 토큰', fmtTok(data.total_output), `이벤트 ${data.events.toLocaleString()}건`));
+  // The server clamps the window to the plan's history limit; label what is
+  // actually shown instead of the requested range.
+  const shownDays = data.days ?? STATE.days;
+  if (shownDays < STATE.days) {
+    wrap.append(makeNotice(t_('현재 플랜은 최근 {shown}일까지만 표시합니다 (선택: {sel}일).', { shown: shownDays, sel: STATE.days })));
+  }
+  wrap.append(makeCard('비용 (USD, Anthropic API 기준)', fmtUsd(data.total_usd), t_('{n}일 누적', { n: shownDays }), true));
+  wrap.append(makeCard('출력 토큰', fmtTok(data.total_output), t_('이벤트 {n}건', { n: data.events.toLocaleString() })));
   wrap.append(makeCard('캐시 읽기', fmtTok(data.total_cache_read), '비용 절감원'));
-  wrap.append(makeCard('캐시 쓰기', fmtTok(data.total_cache_write), '1시간 ephemeral'));
+  wrap.append(makeCard('캐시 쓰기', fmtTok(data.total_cache_write), '5분·1시간 캐시'));
   wrap.append(makeCard('입력 토큰', fmtTok(data.total_input), '비-캐시'));
 }
 
@@ -241,8 +258,8 @@ async function renderSubagents() {
   const wrap = $('#subagent-cards');
   wrap.innerHTML = '';
   const { main, subagent } = data.split;
-  wrap.append(makeCard('메인 세션', fmtUsd(main.usd), `${main.events.toLocaleString()}건`));
-  wrap.append(makeCard('서브에이전트', fmtUsd(subagent.usd), `${subagent.events.toLocaleString()}건`, true));
+  wrap.append(makeCard('메인 세션', fmtUsd(main.usd), t_('{n}건', { n: main.events.toLocaleString() })));
+  wrap.append(makeCard('서브에이전트', fmtUsd(subagent.usd), t_('{n}건', { n: subagent.events.toLocaleString() }), true));
   wrap.append(makeCard('서브에이전트 비중', `${data.subagent_share_pct.toFixed(1)}%`, '전체 USD 대비'));
 
   const t = $('#table-subagents');
@@ -314,7 +331,7 @@ async function renderAudit() {
       .reduce((sum, f) => sum + f.estimatedCostUsd, 0);
     const hasPrice = matches.some((f) => f.estimatedCostUsd !== null);
     cardsWrap.append(
-      makeCard(AUDIT_TYPE_LABEL[type], `${matches.length}건`, hasPrice ? `연관 비용 ${fmtUsd(pricedTotal)}` : null),
+      makeCard(AUDIT_TYPE_LABEL[type], t_('{n}건 발견', { n: matches.length }), hasPrice ? t_('연관 비용 {usd}', { usd: fmtUsd(pricedTotal) }) : null),
     );
   }
   if (!cardsWrap.children.length) {
@@ -413,7 +430,7 @@ let CURRENT_EDIT_ID = null;
 
 function openRuleDialog(rule) {
   CURRENT_EDIT_ID = rule?.id ?? null;
-  $('#rule-form-title').textContent = rule ? '룰 수정' : '새 룰';
+  $('#rule-form-title').textContent = t_(rule ? '룰 수정' : '새 룰');
   const f = $('#rule-form');
   f.reset();
   if (rule) {
@@ -463,10 +480,13 @@ async function submitRule(e) {
   const method = CURRENT_EDIT_ID ? 'PATCH' : 'POST';
   const res = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
-    alert('저장 실패: ' + res.status);
+    alert(t_('저장 실패: {status}', { status: res.status }));
     return;
   }
   $('#rule-dialog').close();
+  if (action_type === 'notify.desktop' && 'Notification' in window && Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch {}
+  }
   await renderRules();
 }
 
@@ -479,9 +499,9 @@ async function doDryRun() {
     lookback_days: 30,
   };
   const res = await fetch('/api/rules/dry-run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  if (!res.ok) { $('#rule-dry-run-result').textContent = '드라이런 실패'; return; }
+  if (!res.ok) { $('#rule-dry-run-result').textContent = t_('드라이런 실패'); return; }
   const r = await res.json();
-  $('#rule-dry-run-result').textContent = `최근 ${r.window_count}일 중 ${r.would_fire}회 발화. 최대값 ${fmtThreshold(body.metric, r.max_value)}.`;
+  $('#rule-dry-run-result').textContent = t_('최근 {days}일 중 {n}회 발화. 최대값 {max}.', { days: r.window_count, n: r.would_fire, max: fmtThreshold(body.metric, r.max_value) });
 }
 
 async function rulesRowAction(e) {
@@ -502,7 +522,7 @@ async function rulesRowAction(e) {
     const rule = await api(`/api/rules/${id}`);
     openRuleDialog(rule);
   } else if (act === 'delete') {
-    if (!confirm('이 룰을 삭제할까요?')) return;
+    if (!confirm(t_('이 룰을 삭제할까요?'))) return;
     await fetch(`/api/rules/${id}`, { method: 'DELETE' });
     await renderRules();
   }
@@ -510,9 +530,8 @@ async function rulesRowAction(e) {
 
 async function pollDesktopNotifications() {
   if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    try { await Notification.requestPermission(); } catch {}
-  }
+  // Permission is requested only after the user saves a desktop-notification
+  // rule (see submitRule), never unprompted on page load.
   if (Notification.permission !== 'granted') return;
   try {
     const data = await api('/api/desktop-notifications');
@@ -555,6 +574,11 @@ function shortId(id, head = 8) {
   return id.length > head + 4 ? `${id.slice(0, head)}…${id.slice(-4)}` : id;
 }
 
+function sessionLabel(r) {
+  // Plain text (escaped by the caller via esc() when placed in an attribute).
+  return [r.project, fmtUsd(r.total_usd), new Date(r.start_ts).toLocaleString()].join(' — ');
+}
+
 async function renderSessions() {
   const data = await api(`/api/sessions?days=${STATE.days}&limit=20`);
   const t = $('#table-sessions');
@@ -571,7 +595,7 @@ async function renderSessions() {
       <th class="num">USD</th>
       <th class="num">출력</th>
       <th class="num">이벤트</th>
-      <th class="num">기간</th>
+      <th class="num">소요 시간</th>
     </tr></thead>
     <tbody>
       ${data.rows.map((r) => {
@@ -579,7 +603,7 @@ async function renderSessions() {
         const source = r.source === 'claude-code' ? 'Claude' : r.source === 'codex' ? 'Codex' : r.source;
         return `
           <tr data-session="${esc(r.session_id)}" title="${esc(r.session_id)}">
-            <td class="muted">${new Date(r.start_ts).toLocaleString()}</td>
+            <td class="muted"><button type="button" class="link-btn" aria-label="${esc(sessionLabel(r))}">${new Date(r.start_ts).toLocaleString()}</button></td>
             <td title="${esc(r.project)}">${esc(project)}</td>
             <td>${esc(source)}</td>
             <td class="muted">${esc(r.top_model)}</td>
@@ -596,7 +620,7 @@ async function renderSessions() {
 
 async function openSessionDialog(sessionId) {
   const overview = await api(`/api/sessions/${encodeURIComponent(sessionId)}`);
-  $('#session-dialog-title').textContent = `세션 — ${fmtUsd(overview.total_usd)} · ${overview.events}건`;
+  $('#session-dialog-title').textContent = t_('세션 — {usd} · {n}건', { usd: fmtUsd(overview.total_usd), n: overview.events });
   $('#session-dialog-meta').innerHTML = `
     <div><strong>session_id:</strong> ${esc(overview.session_id)}</div>
     <div><strong>project:</strong> ${esc(overview.project)}</div>
@@ -696,7 +720,10 @@ async function loadSessionTools(sessionId) {
 
 function switchTab(name) {
   document.querySelectorAll('.dialog-tabs .tab').forEach((b) => {
-    b.classList.toggle('active', b.dataset.tab === name);
+    const on = b.dataset.tab === name;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll('.tab-body').forEach((b) => {
     b.classList.toggle('active', b.id === `tab-${name}`);
@@ -707,29 +734,64 @@ $('#table-sessions').addEventListener('click', (e) => {
   const tr = e.target.closest('tr[data-session]');
   if (!tr) return;
   openSessionDialog(tr.dataset.session).catch((err) => {
-    alert('세션 로드 실패: ' + err.message);
+    alert(t_('세션 로드 실패: {msg}', { msg: err.message }));
   });
 });
 $('#session-close').addEventListener('click', () => $('#session-dialog').close());
 document.querySelectorAll('.dialog-tabs .tab').forEach((b) => {
   b.addEventListener('click', () => switchTab(b.dataset.tab));
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  b.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tabs = [...document.querySelectorAll('.dialog-tabs .tab')];
+    const next = tabs[(tabs.indexOf(b) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    switchTab(next.dataset.tab);
+    next.focus();
+  });
 });
 
+const SECTION_RENDERERS = [
+  ['overview', renderOverview],
+  ['sources', renderSources],
+  ['daily chart', renderDailyChart],
+  ['hourly chart', renderHourlyChart],
+  ['models', renderModels],
+  ['projects', renderProjects],
+  ['MCP', renderMcp],
+  ['sub-agents', renderSubagents],
+  ['audit', renderAudit],
+  ['sessions', renderSessions],
+  ['rules', renderRules],
+];
+
+function showLoadError(failed, serverDown) {
+  const box = $('#load-error');
+  if (!failed.length) {
+    box.hidden = true;
+    box.textContent = '';
+    return;
+  }
+  const msg = serverDown
+    ? t_('대시보드를 불러오지 못했습니다. token-meter serve 가 실행 중인지 확인하세요.')
+    : t_('일부 데이터를 불러오지 못했습니다: {what}', { what: failed.map(([name]) => name).join(', ') });
+  box.innerHTML = `<p>${esc(msg)} <button type="button" id="load-retry" class="btn-secondary">${t_('다시 시도')}</button></p>`;
+  box.hidden = false;
+  $('#load-retry').addEventListener('click', () => refreshAll().catch(console.error));
+}
+
+// Each section renders independently: one failing endpoint no longer blanks
+// the whole page, and the user gets a visible message plus a retry button.
 async function refreshAll() {
   await renderEmptyState();
-  await Promise.all([
-    renderOverview(),
-    renderSources(),
-    renderDailyChart(),
-    renderHourlyChart(),
-    renderModels(),
-    renderProjects(),
-    renderMcp(),
-    renderSubagents(),
-    renderAudit(),
-    renderSessions(),
-    renderRules(),
-  ]);
+  const results = await Promise.allSettled(SECTION_RENDERERS.map(([, fn]) => fn()));
+  const failed = [];
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.error(SECTION_RENDERERS[i][0], r.reason);
+      failed.push([SECTION_RENDERERS[i][0], r.reason]);
+    }
+  });
+  showLoadError(failed, failed.length === SECTION_RENDERERS.length);
   pollDesktopNotifications().catch(() => {});
 }
 
@@ -739,16 +801,30 @@ $('#days').addEventListener('change', (e) => {
 });
 
 $('#refresh').addEventListener('click', async () => {
-  $('#refresh').disabled = true;
+  const btn = $('#refresh');
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
   try {
     await fetch('/api/refresh', { method: 'POST' });
     await refreshAll();
+  } catch (err) {
+    console.error(err);
+    showLoadError([['refresh', err]], true);
   } finally {
-    $('#refresh').disabled = false;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
   }
+});
+
+$('#lang-toggle').addEventListener('click', () => {
+  const next = window.TM_I18N && window.TM_I18N.lang() === 'en' ? 'ko' : 'en';
+  try { localStorage.setItem('tm-lang', next); } catch {}
+  const u = new URL(location.href);
+  u.searchParams.set('lang', next);
+  location.href = u.toString();
 });
 
 refreshAll().catch((err) => {
   console.error(err);
-  document.body.insertAdjacentHTML('beforeend', `<pre style="color:#f85149;padding:24px">${esc(err.message)}</pre>`);
+  showLoadError([['dashboard', err]], true);
 });

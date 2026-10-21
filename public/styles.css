@@ -311,3 +311,51 @@ dialog.wide[open] { display: flex; }
 .tab-body { display: none; flex: 1; overflow-y: auto; min-height: 0; }
 .tab-body.active { display: block; }
 .tab-body h4 { font-size: 13px; margin: 0 0 8px; color: var(--muted); }
+
+/* Accessibility */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #0b1622;
+  border-radius: 6px;
+  z-index: 100;
+}
+.skip-link:focus { top: 8px; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.link-btn:hover { text-decoration: underline; }
+
+#load-error {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  border-radius: 8px;
+}
+#load-error p { margin: 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* Narrow screens: header wraps, tighter gutters, tables scroll inside their box */
+@media (max-width: 640px) {
+  header { flex-wrap: wrap; gap: 8px; padding: 12px 16px; position: static; }
+  .controls { flex-wrap: wrap; gap: 8px; }
+  .controls select, .controls button { margin-left: 0; }
+  main { padding: 16px 16px 48px; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  dialog, dialog.wide { padding: 16px; width: calc(100% - 32px); }
+  .dry-run { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}
