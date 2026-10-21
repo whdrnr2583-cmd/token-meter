@@ -107,3 +107,20 @@ test('check-pricing: changed page format throws ParseError (never a silent pass)
 test('check-pricing: zero overlap with our table throws ParseError', () => {
   assert.throws(() => run({ 'unknown-model': PRICES['gpt-5'] }), (e: any) => e instanceof mod.ParseError);
 });
+
+import { spawnSync } from 'node:child_process';
+import { writeFileSync as _w, mkdtempSync as _m } from 'node:fs';
+import { join as _j } from 'node:path';
+import { tmpdir as _t } from 'node:os';
+
+test('check-pricing --only: bad value exits 2; --only openai never touches the Anthropic page and says the other vendor is unverified', () => {
+  const bad = spawnSync(process.execPath, ['--import', 'tsx/esm', 'scripts/check-pricing.mjs', '--only', 'nope'], { encoding: 'utf8' });
+  assert.equal(bad.status, 2);
+  const dir = _m(_j(_t(), 'tm-cp-'));
+  const empty = _j(dir, 'o.md');
+  _w(empty, '');
+  // Empty OpenAI copy -> parse failure (exit 2) *after* the vendor filter was applied; Anthropic is not fetched.
+  const r = spawnSync(process.execPath, ['--import', 'tsx/esm', 'scripts/check-pricing.mjs', '--only', 'openai', '--openai', empty], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.doesNotMatch(r.stderr, /platform\.claude\.com/);
+});

@@ -69,7 +69,7 @@ and `src/server.ts` route handlers — no schema change.
 |---|---|---|
 | `notify.desktop` (browser Notification API) | 1 rule | unlimited |
 | `notify.webhook` (local fetch POST, 5s timeout, no retry) | ❌ | unlimited |
-| `notify.email` (CF Workers `/v1/action/email` → Resend) | ❌ | unlimited |
+| `notify.email` | not available yet (new rules rejected with 400) | not available yet |
 | `digest.weekly` (Sunday roll-up of the past 7 days) | ❌ | 1 (fixed) |
 
 Rule fields, validation, cooldown, dry-run preview, firing log — all

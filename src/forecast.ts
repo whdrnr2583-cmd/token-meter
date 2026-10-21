@@ -34,7 +34,16 @@ export interface ForecastResult {
   monthly_budget_usd: number | null;
   /** Previous calendar month total (for WoW-style delta context) */
   prev_month_usd: number;
+  /**
+   * True while fewer than 3 calendar days of the month have elapsed: a linear
+   * projection from one or two days is dominated by noise (one heavy day
+   * becomes a 30x month), so consumers should show it as indicative only and
+   * must not raise pacing alerts from it.
+   */
+  low_confidence: boolean;
 }
+
+export const FORECAST_MIN_DAYS_FOR_CONFIDENCE = 3;
 
 /**
  * Compute a linear forecast for the current calendar month.
@@ -54,13 +63,13 @@ export function forecastMonthly(
   // Calendar boundaries for the current month.
   const monthStart = new Date(year, month, 1).getTime();
   const monthEnd = new Date(year, month + 1, 1).getTime();
-  const daysInMonth = Math.round((monthEnd - monthStart) / 86_400_000);
+  // Calendar arithmetic, not millisecond arithmetic: a DST change makes one
+  // local day 23 or 25 hours long, so dividing by 86_400_000 misreports the day
+  // number during the first/last hour around the change.
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Days elapsed: how many full days since month start, plus today.
-  const daysElapsed = Math.max(
-    1,
-    Math.floor((asOf - monthStart) / 86_400_000) + 1,
-  );
+  // Days elapsed: calendar day-of-month, i.e. complete days plus today.
+  const daysElapsed = Math.max(1, now.getDate());
   const daysRemaining = daysInMonth - daysElapsed;
 
   // Actual spend this month.
@@ -103,6 +112,7 @@ export function forecastMonthly(
       budget !== null && budget > 0 ? projectedEom / budget : null,
     monthly_budget_usd: budget,
     prev_month_usd: prevRow.usd,
+    low_confidence: daysElapsed < FORECAST_MIN_DAYS_FOR_CONFIDENCE,
   };
 }
 

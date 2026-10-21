@@ -11,6 +11,8 @@ import {
   upsertAgentMeta,
 } from './db.js';
 import { parseJsonlFile } from './parser.js';
+import type { ClaudeParseState } from './parser.js';
+import { buildResume, planResume } from './incremental.js';
 import { ingestCodex, codexSessionsDirs } from './codex-ingest.js';
 import { isWsl, scanWindowsUserDirs } from './platform.js';
 
@@ -22,6 +24,12 @@ export { isWsl, scanWindowsUserDirs };
 export interface IngestSummary {
   files_scanned: number;
   files_processed: number;
+  /** Files that could not be read/parsed (skipped; retried on the next run). */
+  files_failed: number;
+  /** Files parsed from a saved offset (only appended bytes) instead of from byte 0. */
+  files_incremental: number;
+  /** First few "<path>: <reason>" messages for failed files. */
+  errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
   duration_ms: number;
@@ -30,6 +38,8 @@ export interface IngestSummary {
 export interface CodexIngestSummary {
   files_scanned: number;
   files_processed: number;
+  files_failed: number;
+  errors: string[];
   token_rows_inserted: number;
   tool_rows_inserted: number;
   duration_ms: number;
@@ -133,15 +143,21 @@ function ingestAgentMeta(db: Database.Database, filePath: string, agentId: strin
   }
 }
 
+export const MAX_REPORTED_INGEST_ERRORS = 5;
+
 export function ingestClaudeCode(
   db: Database.Database,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; parse?: typeof parseJsonlFile } = {},
 ): IngestSummary {
+  const parse = options.parse ?? parseJsonlFile;
   const start = Date.now();
   const baseDirs = claudeProjectsDirs();
   const summary: IngestSummary = {
     files_scanned: 0,
     files_processed: 0,
+    files_failed: 0,
+    files_incremental: 0,
+    errors: [],
     token_rows_inserted: 0,
     tool_rows_inserted: 0,
     duration_ms: 0,
@@ -203,14 +219,33 @@ export function ingestClaudeCode(
           prior.mtime_ms === Math.floor(st.mtimeMs) &&
           prior.size === st.size;
         if (unchanged) continue;
-        const { tokens, tools } = parseJsonlFile(filePath, prettyName, agentId);
-        const ti = insertTokenEvents(db, tokens);
-        const tl = insertToolEvents(db, tools);
-        if (agentId) ingestAgentMeta(db, filePath, agentId);
-        recordIngest(db, filePath, Math.floor(st.mtimeMs), st.size);
-        summary.files_processed++;
-        summary.token_rows_inserted += ti;
-        summary.tool_rows_inserted += tl;
+        // Append-only growth => parse just the new bytes; anything else => whole file.
+        const plan = planResume(filePath, prior, st, !!options.force);
+        // One unreadable/oversized/locked file must not abort the whole scan
+        // (or the dashboard's boot ingest). Skip it, report it, and leave its
+        // ingest_state unrecorded so the next run retries it.
+        try {
+          const parsed = plan
+            ? parse(filePath, prettyName, agentId, { startOffset: plan.startOffset, state: plan.state as ClaudeParseState })
+            : parse(filePath, prettyName, agentId);
+          const { tokens, tools } = parsed;
+          const ti = insertTokenEvents(db, tokens);
+          const tl = insertToolEvents(db, tools);
+          if (agentId) ingestAgentMeta(db, filePath, agentId);
+          recordIngest(
+            db, filePath, Math.floor(st.mtimeMs), st.size,
+            parsed.state ? buildResume(filePath, parsed.endOffset, parsed.state, st.ino) : undefined,
+          );
+          if (plan) summary.files_incremental++;
+          summary.files_processed++;
+          summary.token_rows_inserted += ti;
+          summary.tool_rows_inserted += tl;
+        } catch (err) {
+          summary.files_failed++;
+          if (summary.errors.length < MAX_REPORTED_INGEST_ERRORS) {
+            summary.errors.push(`${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
   }
@@ -285,4 +320,41 @@ export function ensureFirstRunData(
         'the Windows side, that path is covered automatically.',
       ].join('\n');
   return { wasEmpty: true, ingested, rowsAfter: 0, guidance };
+}
+
+export interface RefreshResult {
+  summary: CombinedIngestSummary | null;
+  /** Plain-text next step when there is still no usage data; '' otherwise. */
+  guidance: string;
+  /** Human-readable ingest problems (unreadable files, ingest crash). */
+  warnings: string[];
+}
+
+/**
+ * Bring the local DB up to date before a read-only report command (stats,
+ * audit, subagents, local). The scan is incremental (unchanged files are
+ * skipped by mtime+size), so it is cheap when nothing changed, and it means a
+ * brand-new user running `npx ... audit` as their very first command sees real
+ * data instead of an empty "run ingest first" report. Never throws.
+ */
+export function refreshForReport(
+  db: Database.Database,
+  options: { ingest?: (db: Database.Database) => CombinedIngestSummary } = {},
+): RefreshResult {
+  const warnings: string[] = [];
+  let summary: CombinedIngestSummary | null = null;
+  try {
+    summary = (options.ingest ?? ((d) => ingestAll(d)))(db);
+    for (const part of [summary.claude_code, summary.codex]) {
+      if (part.files_failed > 0) {
+        warnings.push(
+          `Skipped ${part.files_failed} unreadable log file(s); first error: ${part.errors[0] ?? 'unknown'}`,
+        );
+      }
+    }
+  } catch (err) {
+    warnings.push(`Could not scan logs: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const guidance = countTokenEvents(db) > 0 ? '' : ensureFirstRunData(db, { ingest: () => undefined }).guidance;
+  return { summary, guidance, warnings };
 }

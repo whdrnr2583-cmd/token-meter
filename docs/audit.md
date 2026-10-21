@@ -7,8 +7,9 @@ oversized tool responses, slow tools, repeated calls, cache waste, and a
 high-cost-model usage signal.
 
 It reads from the same local SQLite database every other Token Meter command
-uses (`~/.tokenpulse/usage.db`). Nothing is uploaded; run `token-meter
-ingest` first if you haven't already.
+uses (`~/.tokenpulse/usage.db`, override with `TOKENPULSE_DB`). Nothing is
+uploaded. `audit` scans for new log files itself before analysing, so it works as
+a first command; running `token-meter ingest` separately is optional.
 
 ```sh
 npx -y @whdrnr2583/token-meter audit
@@ -92,6 +93,7 @@ Top-level `AuditReport`:
 |---|---|---|
 | `findingCount` | number | `findings.length` after ranking + `--limit`. |
 | `costAssociatedUsd` | number \| null | Sum of `findings[].estimatedCostUsd`, deduplicated across shared `costEventIds` (see "Overlap and dedup" below). `null` when no finding has a priced cost. |
+| `potentialSavingsUsd` | number \| null | Sum of `findings[].potentialSavingsUsd` (approximate — findings use different mechanisms). `null` when no finding has one. |
 | `overallConfidence` | `"high" \| "medium" \| "low"` | See "Confidence model" below. |
 | `findingsMayOverlap` | boolean | `true` when two or more findings shared a `costEventIds` entry and the engine had to drop one side to avoid double-counting. `false` when nothing overlapped, including whenever `findings` is empty. |
 
@@ -109,6 +111,8 @@ Top-level `AuditReport`:
 | `toolName` | string \| null | `null` for findings not scoped to one tool (e.g. D1, D5, D6). |
 | `metrics` | `Record<string, unknown>` | Detector-specific numeric/string evidence (e.g. `{ avgTokens, calls }`). Shape varies by `type` — see each detector's own file for its exact keys. |
 | `estimatedCostUsd` | number \| null | See `costLabel` for how to read this. |
+| `potentialSavingsUsd` | number \| null | The part of the money involved that could plausibly be **avoided**, with the finding's own `confidence`. `estimatedCostUsd` is money involved, not a saving. `null` when no defensible formula exists (slow tools, repeated calls, expensive sessions). |
+| `savingsBasis` | string \| null | The assumption behind `potentialSavingsUsd`, in one sentence. |
 | `costLabel` | `CostLabel` | `"estimated_cost"` (a real USD estimate), `"cost_associated"` (cost data exists but is too indirect/shared to attribute cleanly — e.g. D2's projected savings, D6's session spend where what's uncertain is model choice, not the dollar amount), or `"not_available"` (no cost data — `estimatedCostUsd` is always `null` here). |
 | `confidence` | `"high" \| "medium" \| "low"` | See "Confidence model" below. |
 | `evidence` | `string[]` | The concrete numbers/facts backing the finding. |
@@ -175,3 +179,13 @@ instead.
   sample report.
 - [docs/pro-features.md](pro-features.md) — history-window entitlement that
   `--days` is clamped against.
+
+
+## How savings are estimated
+
+| Finding | `potentialSavingsUsd` | Confidence driver |
+|---|---|---|
+| `cache_inefficiency` | Only the **write premium** (cache-write rate minus plain input rate) on cache tokens that were written but never read back — the tokens themselves would have been billed as input anyway. | Day-level heuristic; reads on other days are not credited. |
+| `high_cost_model_signal` | The same tokens of the flagged short sessions re-priced on a lower tier of the same vendor (Claude: `claude-sonnet-5-5`; OpenAI: `gpt-5.4`). Assumes equal token counts and that the cheaper model would have been good enough. | Always `low` — a judgment call the tool cannot make for you. |
+| `oversized_tool_response` | The weekly projection from `trim-suggestions`: a fixed reducible share (20-50% by pattern) of response tokens, priced at input rates. | Heuristic share. |
+| others | `null` — no honest formula, so no number. | — |
