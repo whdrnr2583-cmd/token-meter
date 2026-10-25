@@ -5,6 +5,118 @@ All notable changes to Token Meter.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Maintainer note: this batch was built on 2026-10-21 at the maintainer's explicit
+request; it supersedes, for this work only, the 2026-06-28 "bugs and security
+only" status in STRATEGY.md. No pricing, license enforcement, publish or
+release step is part of it.
+
+### Security
+- **Dashboard rejects DNS-rebinding and cross-site requests.** The server bound
+  to 127.0.0.1 but accepted any `Host` and any `Origin`, so a web page could
+  rebind its hostname to localhost and read `/api/*` or create webhook rules.
+  Requests now need a loopback `Host`, and a browser `Origin`, when present,
+  must match it (403 otherwise). curl and MCP clients are unaffected.
+  Regression: `test/server-local-guard.test.ts`.
+- **Chart.js is served locally.** The dashboard loaded it from cdn.jsdelivr.net
+  (a third-party request on every open, no SRI, broken offline), which
+  contradicted the local-only claim. Chart.js 4.4.4 (MIT) is vendored under
+  `public/vendor/`. `test/no-network-surface.test.ts` fails if a network
+  primitive appears in `src/` outside `license.ts`, `rules.ts` and `proxy.ts`,
+  or if the page loads a third-party subresource.
+
+### Performance
+- **Growing session files are resumed, not re-parsed.** A file that only gained
+  lines is parsed from the saved byte offset (previously the whole file every
+  scan; the dashboard scans every 30 s). Resume state (unpaired `tool_use` ids,
+  Codex session/model/cumulative-total state, head+tail fingerprint, inode) is
+  stored in new additive `ingest_state` columns; rows from older versions have
+  none and are fully re-parsed once. Falls back to a full parse when the file
+  shrank, was replaced or edited before the saved offset, or its state is
+  oversized. A trailing line without `\n` is never consumed. Escape hatch:
+  `TOKEN_METER_FULL_REPARSE=1`. Equal-total duplicates now resolve to the
+  later-timestamped sighting in the database too, matching the in-file rule.
+  Tests: `test/incremental-ingest.test.ts` (staged ingest equals one full parse
+  across line- and byte-level splits for Claude, sub-agents and Codex).
+
+### Fixed
+- **Audit "potential savings" for oversized tool responses was inflated and
+  mixed time units.** The trim estimate priced a saved token at total spend ÷
+  (input + output) tokens, which with cache-heavy agent traffic is 10-20x the
+  input rate (a synthetic week showed a projected saving above the week's whole
+  spend). It now uses each model's plain input rate weighted by prompt tokens,
+  as the stated basis says, and the per-week projection is scaled to the audit
+  window so the summary total adds like with like. High-cost-model re-pricing
+  keeps the 1-hour cache-write split. Affects `audit` and the trim suggestions.
+- **Codex rows were duplicated after upgrading** when the reasoning fix below
+  changed a turn's output: the synthetic request id included the billed output,
+  so a re-parse of a file an older version had ingested inserted a second row.
+  The id keeps its previous form; old rows stay as stored.
+- **The dashboard's first-run banner never appeared**: it called `/api/status`,
+  which did not exist. Route added; a test now checks every `/api/` path the
+  page calls is registered. Plan-limited features (HTTP 402) show a short note
+  instead of the load-error banner.
+- **`audit` / `stats` / `subagents` / `export` now ingest first.** A new user
+  running the README's `npx ... audit` as the first command got an empty
+  "run ingest first" report. These commands now do an incremental scan (and
+  print what to do on stderr when no logs exist, so `--json` stays clean).
+- **One bad log file no longer aborts ingest or dashboard start.** A file that
+  cannot be read or parsed is skipped, reported (`files_failed`, `errors`) and
+  retried next run.
+- **Large logs.** Session files are read through a chunked line reader instead
+  of `readFileSync`, which threw past V8's ~512 MB string limit.
+- **Codex reasoning tokens were double-counted when the log shows they are
+  already part of `output_tokens`.** The parser now uses the log's own
+  `total_tokens` to decide, and keeps the old additive behaviour when it is
+  absent. Codex `token_count` events whose cumulative total did not change are
+  no longer billed a second time. Stored rows are not recomputed.
+- **Forecast day counting across DST** (calendar day instead of milliseconds)
+  and a `low_confidence` flag on the forecast for the first two days of a month.
+- CLI: unknown commands name the command; database/permission errors print one
+  actionable line instead of a stack trace (`TOKEN_METER_DEBUG=1` for the
+  trace); `serve` explains a busy port and a bad `PORT`.
+- `npm run audit` honours `TOKENPULSE_DB`, opens the database read-only and
+  explains a missing one.
+- README no longer claims Cursor usage is tracked, and its privacy section now
+  lists every network call the code can make.
+
+### Added
+- **Estimated savings in `audit`.** Findings gain `potentialSavingsUsd` and
+  `savingsBasis`, and the summary gains `potentialSavingsUsd` (JSON schema and
+  docs updated; additive). Cache findings count only the write premium, short
+  high-cost sessions are re-priced on a lower tier, trim projections are carried
+  over; other types stay `null`. See docs/audit.md "How savings are estimated".
+- **English dashboard** (default unless the browser language is Korean;
+  `?lang=ko|en` and an EN/KO toggle). A test fails if a Korean string has no
+  translation.
+- Dashboard accessibility and states: skip link, labelled charts and dialogs,
+  ARIA tabs, keyboard-reachable session rows, live regions, focus ring,
+  per-section load errors with Retry, narrow-screen layout, no unprompted
+  notification permission request, and the real (plan-limited) window is shown
+  instead of the requested one.
+
+### Changed
+- **Email rule action removed from the UI and rejected by the API.** It was an
+  unwired stub (it only logged `skipped:email_not_wired_until_m3`). New or
+  edited rules with `notify.email` get HTTP 400 (`field: action_type`); rules
+  saved earlier keep loading, show as "Email (inactive)", and can be toggled or
+  deleted. Docs updated.
+- `audit` rejects unknown options (a typo like `--jsno` used to run silently with
+  defaults); `--help` lists `TOKENPULSE_DB`, `PORT`, `TOKEN_METER_DEBUG`.
+- `npm run check:pricing -- --only anthropic|openai` verifies one vendor when
+  the other page is unreachable and says which vendor was not verified.
+
+### Known gaps
+- Rate table: the 17 comparable Anthropic rows were checked against the live
+  pricing page on 2026-10-21 (0 differences); the OpenAI rows could not be
+  fetched from the build sandbox and are NOT verified. Checklist in
+  RELEASE_RUNBOOK.md.
+- Project names are decoded from the Claude Code folder name, so a hyphen in a
+  folder name shows as `/`. Fixing it changes the stored project key.
+- A growing session file is re-parsed in full on each scan (the dashboard scans
+  every 30 s).
+
 ## [0.1.29] — 2026-10-06
 
 ### Fixed

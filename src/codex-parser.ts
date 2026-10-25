@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
 import type { TokenEvent, ToolEvent } from './types.js';
 import { estimateUsd } from './pricing.js';
 import { estimateTokensFromText } from './parser.js';
+import { readLineItems, readLines } from './jsonl-lines.js';
 
 interface CodexLastTokenUsage {
   input_tokens?: number;
@@ -49,23 +49,44 @@ function extractModel(instructionText: string): string {
   return 'gpt-5';
 }
 
+/** Everything needed to continue parsing a Codex session file from a byte offset. */
+export interface CodexParseState {
+  v: 1;
+  sessionId: string;
+  cwd: string;
+  model: string;
+  currentModel: string;
+  prevTotalKey: string;
+  pending: Array<[string, { ts: number; name: string }]>;
+}
+
 export interface ParseCodexResult {
   tokens: TokenEvent[];
   tools: ToolEvent[];
+  /** Byte offset just past the last newline-terminated line consumed. */
+  endOffset: number;
+  /** null when the file has no session_meta (nothing to resume; always re-parsed in full). */
+  state: CodexParseState | null;
 }
 
-export function parseCodexSession(filePath: string): ParseCodexResult {
-  const content = readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
+export interface ParseCodexOptions {
+  startOffset?: number;
+  state?: CodexParseState | null;
+}
 
-  let sessionId = '';
-  let cwd = 'unknown';
-  let model = 'gpt-5';
+export function parseCodexSession(filePath: string, opts: ParseCodexOptions = {}): ParseCodexResult {
+  let sessionId = opts.state?.sessionId ?? '';
+  let cwd = opts.state?.cwd ?? 'unknown';
+  let model = opts.state?.model ?? 'gpt-5';
   const tokens: TokenEvent[] = [];
   const tools: ToolEvent[] = [];
+  const resuming = !!opts.state;
 
-  // First pass: read session_meta (always early in file).
-  for (const line of lines.slice(0, 5)) {
+  // First pass: read session_meta (always early in file). Skipped when resuming:
+  // the previous run already found it and carried it in `state`.
+  let headLines = 0;
+  for (const line of resuming ? [] : readLines(filePath)) {
+    if (++headLines > 5) break;
     if (!line) continue;
     let entry: CodexEntry;
     try {
@@ -83,7 +104,7 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     }
   }
 
-  if (!sessionId) return { tokens, tools };
+  if (!sessionId) return { tokens, tools, endOffset: opts.startOffset ?? 0, state: null };
 
   // Second pass: token_count events (billing) + function_call/custom_tool_call
   // ↔ *_output pairing (tool events). `currentModel` tracks the model
@@ -93,13 +114,26 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
   // turn_context at all (older Codex versions) never update it, so every
   // token_count event bills under the session_meta-derived `model` fallback
   // from the first pass above.
-  let currentModel = model;
+  let currentModel = opts.state?.currentModel ?? model;
   // call_id -> the function_call/custom_tool_call entry awaiting its
   // *_output pair. An unmatched pending call (session ended mid-call) is
   // simply never flushed to `tools` — no partial/guessed event.
-  const pendingToolCalls = new Map<string, { ts: number; name: string }>();
+  const pendingToolCalls = new Map<string, { ts: number; name: string }>(opts.state?.pending ?? []);
 
-  for (const line of lines) {
+  // Cumulative totals of the previous token_count event, to skip repeats.
+  let prevTotalKey = opts.state?.prevTotalKey ?? '';
+
+  const snapshot = (): CodexParseState => ({
+    v: 1, sessionId, cwd, model, currentModel, prevTotalKey, pending: [...pendingToolCalls.entries()],
+  });
+  let endOffset = opts.startOffset ?? 0;
+  let stateAtEnd: CodexParseState | null = null;
+
+  for (const item of readLineItems(filePath, opts.startOffset ?? 0)) {
+    const line = item.line;
+    // Unterminated final line: parsed for output, but not consumed (see parser.ts).
+    if (!item.terminated && stateAtEnd === null) stateAtEnd = snapshot();
+    if (item.terminated) endOffset = item.end;
     if (!line) continue;
     let entry: CodexEntry;
     try {
@@ -158,22 +192,47 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     const info = entry.payload.info;
     if (!info || !info.last_token_usage) continue;
     const u = info.last_token_usage;
+    // Codex can re-emit a token_count event whose cumulative total did not move
+    // (no new API call happened). Its last_token_usage is then a stale copy of
+    // the previous turn, and billing it again double-counts that turn. Only
+    // skip when the cumulative total is present, non-trivial and identical.
+    const tt = info.total_token_usage;
+    if (tt && (tt.total_tokens ?? tt.input_tokens ?? 0) > 0) {
+      const key = `${tt.input_tokens ?? 0}|${tt.cached_input_tokens ?? 0}|${tt.output_tokens ?? 0}|${tt.reasoning_output_tokens ?? 0}|${tt.total_tokens ?? 0}`;
+      if (key === prevTotalKey) continue;
+      prevTotalKey = key;
+    }
     const input = u.input_tokens ?? 0;
     const cacheRead = u.cached_input_tokens ?? 0;
     const output = u.output_tokens ?? 0;
     const reasoning = u.reasoning_output_tokens ?? 0;
     // Codex reports input_tokens including cached. Subtract to get fresh input.
     const freshInput = Math.max(0, input - cacheRead);
-    // Reasoning tokens billed as output by OpenAI.
-    const totalOutput = output + reasoning;
+    // Reasoning tokens are billed as output by OpenAI. In the OpenAI usage
+    // object reasoning tokens are a SUBSET of output_tokens, so adding them
+    // again double-counts. The log carries its own evidence: `total_tokens`.
+    // When it equals input + output (without reasoning) reasoning is already
+    // inside output; when it equals input + output + reasoning, it is not.
+    // With no total_tokens to decide, keep the historical additive behaviour.
+    const reportedTotal = u.total_tokens;
+    const reasoningIncluded =
+      reasoning > 0 && reportedTotal !== undefined && reportedTotal === input + output;
+    const totalOutput = reasoningIncluded ? output : output + reasoning;
     if (freshInput + totalOutput + cacheRead === 0) continue;
 
     const ts = entry.timestamp ? Date.parse(entry.timestamp) : Date.now();
     if (Number.isNaN(ts)) continue;
 
     // Synthesize a stable request_id so the (session_id, ts, request_id, model)
-    // unique index can dedupe re-ingested rows.
-    const synthRequestId = `codex-${sessionId.slice(-12)}-${ts}-${totalOutput}`;
+    // unique index can dedupe re-ingested rows. The suffix stays `output +
+    // reasoning` (what v0.1.29 and earlier billed as output) even when the
+    // reasoning fix above bills less: changing it would give every such turn a
+    // NEW id, so a re-parse of a file an older version already ingested
+    // (growing session, `ingest --force`) would insert a second row next to
+    // the old one and double-count it. With the id unchanged, the old row
+    // stays as it was (the upsert only replaces on a larger total) and new
+    // databases get the corrected value.
+    const synthRequestId = `codex-${sessionId.slice(-12)}-${ts}-${output + reasoning}`;
     tokens.push({
       ts,
       source: 'codex',
@@ -198,5 +257,5 @@ export function parseCodexSession(filePath: string): ParseCodexResult {
     });
   }
 
-  return { tokens, tools };
+  return { tokens, tools, endOffset, state: stateAtEnd ?? snapshot() };
 }

@@ -1,9 +1,8 @@
 # Customization Guide — Token Meter Actions
 
-Token Meter ships three built-in alert actions:
+Token Meter ships two built-in alert actions (a third, `notify.email`, is not available yet: the API rejects new email rules, and rules saved earlier by an older version stay listed as inactive and can be toggled or deleted):
 
 - `notify.desktop` — browser notifications when the dashboard is open
-- `notify.email` — email via Token Meter Pro (Resend)
 - `notify.webhook` — POST to a URL you control
 
 This guide shows how to wire `notify.webhook` into the tools you already use,

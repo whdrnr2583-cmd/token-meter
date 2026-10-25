@@ -68,6 +68,14 @@ export interface Finding {
   estimatedCostUsd: number | null;
   costLabel: CostLabel;
   confidence: Confidence;
+  /**
+   * Portion of the money involved that could plausibly be avoided (USD), with
+   * the assumption in `savingsBasis`. null when no defensible formula exists
+   * for this finding type. Inherits this finding's `confidence`. Unlike
+   * estimatedCostUsd it is never "money already spent".
+   */
+  potentialSavingsUsd?: number | null;
+  savingsBasis?: string | null;
   evidence: string[];
   recommendations: string[];
   /**
@@ -97,6 +105,8 @@ export interface AuditReport {
     findingCount: number;
     /** Sum of estimatedCostUsd across findings, deduped via costEventIds. */
     costAssociatedUsd: number | null;
+    /** Sum of findings[].potentialSavingsUsd; null when none has one. Findings use different mechanisms, so treat as approximate. */
+    potentialSavingsUsd: number | null;
     overallConfidence: Confidence;
     /**
      * True when two or more findings shared at least one costEventIds entry

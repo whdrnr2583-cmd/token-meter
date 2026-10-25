@@ -1,3 +1,41 @@
+# 릴리스 준비 체크리스트 — 0.1.30 후보 (2026-10-21 작성)
+
+> 아래는 최신 절차다. 이 문서의 나머지(v0.1.0)는 역사 기록이다.
+> 이 배치는 **릴리스 준비 상태까지만** 만들었다. 버전 bump·태그·`npm publish`는 하지 않았고, 이 환경에는 npm 자격증명이 없다.
+
+## A. 가격표 재검증 (릴리스 전 필수)
+
+`src/pricing.ts` 의 숫자는 이번 배치에서 바꾸지 않았다.
+
+| 대상 | 상태 (2026-10-21) | 할 일 |
+|---|---|---|
+| Anthropic 17개 모델 (`claude-*`, `claude-haiku-4` 제외) | 공식 페이지 `https://platform.claude.com/docs/en/about-claude/pricing.md` 를 받아 `npm run check:pricing -- --only anthropic --anthropic <저장본>` 로 대조: **차이 0** | 릴리스 직전 한 번 더 (`npm run check:pricing -- --only anthropic`) |
+| OpenAI 행 (`gpt-*`, 12개) | **미검증** — 빌드 샌드박스가 `developers.openai.com` 에 접속 불가 | 인터넷 되는 머신에서 `npm run check:pricing` (또는 `-- --only openai`) 실행, 차이 0 확인 |
+| `claude-haiku-4` | 공식 표에 대응 행 없음 (대조 제외) | 공식 표에서 폐지됐는지 확인, 필요 시 행 제거 여부 결정 |
+| `gpt-5.3-codex-spark` | 공식 가격 미공개로 gpt-5 값을 임시 사용 (코드 TODO) | 공개됐는지 확인 후 교체 |
+| `gpt-5.6-sol` | 프로모션가 ($4/$20, 2026-11-21 이후 변동 가능) | 11-21 이후 릴리스면 재확인 |
+| 캘린더 페이지 | `infra/site/calculator.html` 은 Haiku 5.5 장문 프롬프트 구간 표현 불가 (알려진 한계) | `test/calculator-pricing-sync.test.ts` 통과 확인 |
+
+종료 코드: 0 차이 없음 / 1 차이 있음 / 2 가져오기·파싱 실패 (조용한 통과 없음).
+차이가 나오면 근거(페이지 URL, 확인 날짜)를 `src/pricing.ts` 주석과 CHANGELOG 에 남기고 `src/pricing.ts` → `infra/site/calculator.html` 순으로 맞춘다.
+
+## B. 릴리스 직전 점검 (모두 통과해야 진행)
+
+```sh
+npm ci
+npm run typecheck && npm test && npm run build
+TOKENPULSE_DB=<시험용 DB> npm run audit       # 데이터 품질 불변식
+npm pack --dry-run                             # public/vendor/chart.umd.js, public/i18n.js 포함 확인 (~230 kB)
+node scripts/test-mcp-built.cjs                # 빌드본 MCP 동작
+```
+
+- CHANGELOG `[Unreleased]` 를 새 버전 제목으로 바꾸고 날짜 기입 (Known gaps 항목은 해결 여부 재확인).
+- `package.json` / `server.json` / `glama.json` 버전 일치 확인 후 bump (사용자 몫).
+- 브라우저에서 대시보드 수동 확인 1회: 영어/한국어 토글, 탭 키보드 이동, 모바일 폭(≈375px), 오프라인에서 차트 표시(CDN 제거 확인).
+- 태그·`npm publish` 는 사용자 실행 (2FA OTP 필요).
+
+---
+
 > 이 문서는 v0.1.0 출시 당시의 기록이다. 현재 릴리스 절차와 다를 수 있다.
 
 # 배포 런북 — v0.1.0 (오늘 20:00)

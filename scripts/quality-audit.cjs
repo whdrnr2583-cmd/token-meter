@@ -5,7 +5,16 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const db = new Database(path.join(os.homedir(), '.tokenpulse', 'usage.db'));
+// Same location rule as src/db.ts: TOKENPULSE_DB overrides the default path.
+const dbPath = process.env.TOKENPULSE_DB || path.join(os.homedir(), '.tokenpulse', 'usage.db');
+if (!fs.existsSync(dbPath)) {
+  console.error(
+    `Token Meter database not found at ${dbPath}.\n` +
+      'Run `npm run ingest` (or `token-meter ingest`) first, or point TOKENPULSE_DB at an existing usage.db.',
+  );
+  process.exit(2);
+}
+const db = new Database(dbPath, { readonly: true });
 db.pragma('foreign_keys = ON');
 
 const issues = [];

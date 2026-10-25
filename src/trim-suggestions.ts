@@ -76,18 +76,30 @@ const BINARY_EXTENSIONS = [
   'woff', 'woff2', 'ttf', 'eot',
 ];
 
-function avgTokenCostPerEvent(db: Database.Database, days: number): number {
-  // Rough average: total usd / events, back-scaled to per-token.
-  // Used only for savings_usd estimate — not billing-precise.
+function inputRatePerToken(db: Database.Database, days: number): number {
+  // USD per prompt token at each model's PLAIN INPUT rate, weighted by how many
+  // prompt tokens (input + cache read + cache write) each model handled in the
+  // window. A trimmed tool response is prompt text, so input rate is the stated
+  // basis. (The previous formula divided total spend — including output and
+  // cache charges — by input+output tokens only; with cache-heavy agent traffic
+  // that priced a saved token at 10-20x the input rate and could project a
+  // "saving" larger than the whole spend.) Used only for savings_usd estimates.
   const since = Date.now() - days * 86_400_000;
-  const row = db
+  const rows = db
     .prepare(
-      `SELECT COALESCE(AVG(usd_estimate), 0) AS avg_usd,
-              COALESCE(AVG(output_tokens + input_tokens), 1) AS avg_toks
-       FROM token_events WHERE ts >= ?`,
+      `SELECT model,
+              COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens), 0) AS prompt
+       FROM token_events WHERE ts >= ? GROUP BY model`,
     )
-    .get(since) as { avg_usd: number; avg_toks: number };
-  return row.avg_usd / Math.max(1, row.avg_toks);
+    .all(since) as Array<{ model: string; prompt: number }>;
+  let tokens = 0;
+  let usd = 0;
+  for (const r of rows) {
+    if (r.prompt <= 0) continue;
+    tokens += r.prompt;
+    usd += (r.prompt * modelRates(r.model).input) / 1_000_000;
+  }
+  return tokens > 0 ? usd / tokens : 0;
 }
 
 /**
@@ -101,7 +113,7 @@ export function computeTrimSuggestions(
   days: number,
 ): TrimSuggestion[] {
   const since = Date.now() - days * 86_400_000;
-  const usdPerToken = avgTokenCostPerEvent(db, days);
+  const usdPerToken = inputRatePerToken(db, days);
   const suggestions: TrimSuggestion[] = [];
 
   // ── 1. LARGE_RESPONSE ────────────────────────────────────────────────────

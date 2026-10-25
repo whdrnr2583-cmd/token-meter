@@ -1,6 +1,7 @@
 // Compares src/pricing.ts PRICES with the official pricing pages.
 //   npm run check:pricing                       fetch both pages (network)
 //   npm run check:pricing -- --anthropic a.md --openai o.md    offline, saved copies
+//   npm run check:pricing -- --only anthropic|openai           verify one vendor only (partial; says so)
 // Exit codes: 0 = no differences, 1 = differences found,
 //             2 = parse/fetch failure (page format changed or unreachable) — never a silent pass.
 // Not part of `npm test` (network) and not shipped in the npm tarball (not in package.json "files").
@@ -171,9 +172,20 @@ function arg(name) {
 }
 
 async function main() {
-  const anthropic = parseAnthropic(await load(arg('--anthropic'), ANTHROPIC_URL));
-  const openai = parseOpenAI(await load(arg('--openai'), OPENAI_URL));
-  const { diffs, compared, noCounterpart } = compare(PRICES, anthropic, openai);
+  // --only anthropic|openai: verify one vendor when the other page is unreachable.
+  // The skipped vendor is reported as NOT verified so a partial pass is never mistaken for a full one.
+  const only = arg('--only');
+  if (only !== undefined && only !== 'anthropic' && only !== 'openai') {
+    throw new ParseError(`--only 값은 anthropic 또는 openai (받은 값: ${only})`);
+  }
+  const isClaude = (m) => m.startsWith('claude-');
+  const prices = only === 'anthropic' ? Object.fromEntries(Object.entries(PRICES).filter(([m]) => isClaude(m)))
+    : only === 'openai' ? Object.fromEntries(Object.entries(PRICES).filter(([m]) => !isClaude(m)))
+    : PRICES;
+  const anthropic = only === 'openai' ? new Map() : parseAnthropic(await load(arg('--anthropic'), ANTHROPIC_URL));
+  const openai = only === 'anthropic' ? new Map() : parseOpenAI(await load(arg('--openai'), OPENAI_URL));
+  if (only) console.log(`부분 검증: ${only === 'anthropic' ? 'Anthropic' : 'OpenAI'} 행만 대조함. ${only === 'anthropic' ? 'OpenAI' : 'Anthropic'} 행은 검증되지 않음.`);
+  const { diffs, compared, noCounterpart } = compare(prices, anthropic, openai);
   console.log(`대조한 모델 ${compared.length}개, 공식 표에 대응 행 없음 ${noCounterpart.length}개`);
   if (noCounterpart.length) console.log(`  대응 행 없음(대조 제외): ${noCounterpart.join(', ')}`);
   if (diffs.length === 0) {
