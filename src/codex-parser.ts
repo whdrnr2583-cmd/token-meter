@@ -224,8 +224,15 @@ export function parseCodexSession(filePath: string, opts: ParseCodexOptions = {}
     if (Number.isNaN(ts)) continue;
 
     // Synthesize a stable request_id so the (session_id, ts, request_id, model)
-    // unique index can dedupe re-ingested rows.
-    const synthRequestId = `codex-${sessionId.slice(-12)}-${ts}-${totalOutput}`;
+    // unique index can dedupe re-ingested rows. The suffix stays `output +
+    // reasoning` (what v0.1.29 and earlier billed as output) even when the
+    // reasoning fix above bills less: changing it would give every such turn a
+    // NEW id, so a re-parse of a file an older version already ingested
+    // (growing session, `ingest --force`) would insert a second row next to
+    // the old one and double-count it. With the id unchanged, the old row
+    // stays as it was (the upsert only replaces on a larger total) and new
+    // databases get the corrected value.
+    const synthRequestId = `codex-${sessionId.slice(-12)}-${ts}-${output + reasoning}`;
     tokens.push({
       ts,
       source: 'codex',

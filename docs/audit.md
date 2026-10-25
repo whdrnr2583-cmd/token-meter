@@ -187,5 +187,5 @@ instead.
 |---|---|---|
 | `cache_inefficiency` | Only the **write premium** (cache-write rate minus plain input rate) on cache tokens that were written but never read back — the tokens themselves would have been billed as input anyway. | Day-level heuristic; reads on other days are not credited. |
 | `high_cost_model_signal` | The same tokens of the flagged short sessions re-priced on a lower tier of the same vendor (Claude: `claude-sonnet-5-5`; OpenAI: `gpt-5.4`). Assumes equal token counts and that the cheaper model would have been good enough. | Always `low` — a judgment call the tool cannot make for you. |
-| `oversized_tool_response` | The weekly projection from `trim-suggestions`: a fixed reducible share (20-50% by pattern) of response tokens, priced at input rates. | Heuristic share. |
+| `oversized_tool_response` | The weekly projection from `trim-suggestions` scaled to the audit window (`× days / 7`, so it adds up with the other window totals): a fixed reducible share (20-50% by pattern) of response tokens, priced once at each model's plain input rate (weighted by that model's share of prompt tokens). | Heuristic share; a trimmed response that stays in context is also re-read as cache on later turns, which this does not count. |
 | others | `null` — no honest formula, so no number. | — |

@@ -96,7 +96,7 @@
       },
       "estimatedCostUsd": 0.4128,
       "potentialSavingsUsd": 0.4128,
-      "savingsBasis": "Projected per-week saving from trimming this tool's responses: assumes a fixed reducible share of response tokens (20-50% by pattern), priced at input rates.",
+      "savingsBasis": "Saving over this 7-day window had this tool's responses been trimmed: assumes a fixed reducible share of response tokens (20-50% by pattern), priced once at plain input rates.",
       "costLabel": "cost_associated",
       "confidence": "high",
       "evidence": [

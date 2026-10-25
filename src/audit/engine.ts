@@ -433,7 +433,7 @@ export function runAudit(db: Database.Database, opts: RunAuditOptions = {}): Aud
   }
 
   const rankedFindings = rankFindings(allFindings, limit);
-  attachSavings(db, rankedFindings, sinceMs, untilMs);
+  attachSavings(db, rankedFindings, sinceMs, untilMs, days);
   const { total: costAssociatedUsd, overlapDetected } = computeCostAssociated(rankedFindings);
 
   // An empty report makes no uncertain claims — see this file's header for

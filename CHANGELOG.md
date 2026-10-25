@@ -41,6 +41,18 @@ release step is part of it.
   across line- and byte-level splits for Claude, sub-agents and Codex).
 
 ### Fixed
+- **Audit "potential savings" for oversized tool responses was inflated and
+  mixed time units.** The trim estimate priced a saved token at total spend ÷
+  (input + output) tokens, which with cache-heavy agent traffic is 10-20x the
+  input rate (a synthetic week showed a projected saving above the week's whole
+  spend). It now uses each model's plain input rate weighted by prompt tokens,
+  as the stated basis says, and the per-week projection is scaled to the audit
+  window so the summary total adds like with like. High-cost-model re-pricing
+  keeps the 1-hour cache-write split. Affects `audit` and the trim suggestions.
+- **Codex rows were duplicated after upgrading** when the reasoning fix below
+  changed a turn's output: the synthetic request id included the billed output,
+  so a re-parse of a file an older version had ingested inserted a second row.
+  The id keeps its previous form; old rows stay as stored.
 - **The dashboard's first-run banner never appeared**: it called `/api/status`,
   which did not exist. Route added; a test now checks every `/api/` path the
   page calls is registered. Plan-limited features (HTTP 402) show a short note

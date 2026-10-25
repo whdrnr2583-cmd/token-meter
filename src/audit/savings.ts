@@ -15,8 +15,9 @@
  *  - high_cost_model_signal: re-price the same tokens of the flagged short
  *    sessions on a lower tier (same vendor). Assumes equal token counts and
  *    that the cheaper model would have been good enough — hence 'low'.
- *  - oversized_tool_response: the trim-suggestions projection (weekly), which
- *    assumes a fixed reducible share of response tokens priced as input.
+ *  - oversized_tool_response: the trim-suggestions projection (weekly, scaled
+ *    to the audit window), which assumes a fixed reducible share of response
+ *    tokens priced once at plain input rates.
  */
 
 import type Database from 'better-sqlite3';
@@ -71,17 +72,18 @@ function highCostModelSavings(
       `SELECT model,
               COALESCE(SUM(input_tokens),0) AS i, COALESCE(SUM(output_tokens),0) AS o,
               COALESCE(SUM(cache_read_tokens),0) AS cr, COALESCE(SUM(cache_write_tokens),0) AS cw,
+              COALESCE(SUM(cache_write_1h_tokens),0) AS cw1h,
               COALESCE(SUM(usd_estimate),0) AS usd
        FROM token_events
        WHERE session_id IN (${sessionIds.map(() => '?').join(',')}) AND ts >= ? AND ts < ? AND model = ?
        GROUP BY model`,
     )
     .all(...sessionIds, sinceMs, untilMs, model) as Array<{
-    model: string; i: number; o: number; cr: number; cw: number; usd: number;
+    model: string; i: number; o: number; cr: number; cw: number; cw1h: number; usd: number;
   }>;
   let saved = 0;
   for (const r of rows) {
-    const repriced = estimateUsd({ model: ref, input: r.i, output: r.o, cacheRead: r.cr, cacheWrite: r.cw });
+    const repriced = estimateUsd({ model: ref, input: r.i, output: r.o, cacheRead: r.cr, cacheWrite: r.cw, cacheWrite1h: r.cw1h });
     saved += Math.max(0, r.usd - repriced);
   }
   return {
@@ -97,6 +99,7 @@ export function attachSavings(
   findings: Finding[],
   sinceMs: number,
   untilMs: number,
+  days: number = (untilMs - sinceMs) / 86_400_000,
 ): void {
   for (const f of findings) {
     let s: { usd: number; basis: string } | null = null;
@@ -104,11 +107,14 @@ export function attachSavings(
       if (f.type === 'cache_inefficiency') s = cacheInefficiencySavings(f);
       else if (f.type === 'high_cost_model_signal') s = highCostModelSavings(db, f, sinceMs, untilMs);
       else if (f.type === 'oversized_tool_response' && f.estimatedCostUsd !== null) {
+        // estimatedCostUsd is a per-WEEK projection; every other saving here is
+        // over the audit window. Scale it so the summary adds like with like.
+        const windowDays = Math.max(0, days);
         s = {
-          usd: f.estimatedCostUsd,
+          usd: round6((f.estimatedCostUsd * windowDays) / 7),
           basis:
-            'Projected per-week saving from trimming this tool\'s responses: assumes a fixed reducible share of ' +
-            'response tokens (20-50% by pattern), priced at input rates.',
+            `Saving over this ${windowDays}-day window had this tool's responses been trimmed: assumes a fixed ` +
+            'reducible share of response tokens (20-50% by pattern), priced once at plain input rates.',
         };
       }
     } catch {
